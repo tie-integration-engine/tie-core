@@ -89,19 +89,23 @@ public final class ImportRun {
     private final DefaultValueResolver resolver;
     private final SecretProvider secrets;
     private final Clock clock;
+    private final Path workingDirectory;
     private final RunListener listener;
     private final List<Warning> warnings = new ArrayList<>();
     private final List<ReportRef> reports = new ArrayList<>();
     private Map<String, ImportEngine> engines;
 
     public ImportRun(IntegrationDefinition definition, ImportContext context, Map<String, FieldTransformer> transformers,
-                     DefaultValueResolver resolver, SecretProvider secrets, Clock clock) {
+                     DefaultValueResolver resolver, SecretProvider secrets, Clock clock,
+                     Path defaultWorkingDirectory) {
         this.definition = definition;
         this.context = context;
         this.transformers = transformers;
         this.resolver = resolver;
         this.secrets = secrets;
         this.clock = clock;
+        this.workingDirectory = context == null || context.workingDirectory() == null ? defaultWorkingDirectory
+                : context.workingDirectory();
         this.listener = context == null || context.listener() == null ? NO_LISTENER : context.listener();
     }
 
@@ -198,8 +202,8 @@ public final class ImportRun {
                 problems.add("providedInputs[" + i + "]: fileName '" + input.fileName() + "' is not a safe file name");
             }
         }
-        if (!Files.isDirectory(context.workingDirectory())) {
-            problems.add("workingDirectory " + context.workingDirectory() + " does not exist");
+        if (!Files.isDirectory(workingDirectory)) {
+            problems.add("workingDirectory " + workingDirectory + " does not exist");
         }
         ResultReport report = definition.resultReport();
         if (report.mode() != ReportMode.NONE && report.namePattern() != null) {
@@ -364,7 +368,7 @@ public final class ImportRun {
             boolean validateFirst = definition.deliveryStrategy() == DeliveryStrategy.VALIDATE_THEN_DELIVER;
             Path file = null;
             if (candidate.remote() != null) {
-                LocalCopy copy = candidate.channel().fetch(candidate.remote(), context.workingDirectory());
+                LocalCopy copy = candidate.channel().fetch(candidate.remote(), workingDirectory);
                 if (copy.temporary()) {
                     temporaries.add(copy.path());
                 }
@@ -467,7 +471,7 @@ public final class ImportRun {
         private ReportBuffer report(String layout) {
             return reportBuffers.computeIfAbsent(layout, name -> {
                 try {
-                    return new ReportBuffer(context.workingDirectory(), name);
+                    return new ReportBuffer(workingDirectory, name);
                 } catch (IOException e) {
                     throw new FileFailure(FileErrorType.CHANNEL, "cannot create the report buffer in the working"
                             + " directory: " + e.getMessage(), null, e);
@@ -533,7 +537,7 @@ public final class ImportRun {
         }
 
         private Path temporary() throws IOException {
-            Path path = Files.createTempFile(context.workingDirectory(), "tie-", "-" + candidate.name());
+            Path path = Files.createTempFile(workingDirectory, "tie-", "-" + candidate.name());
             temporaries.add(path);
             return path;
         }

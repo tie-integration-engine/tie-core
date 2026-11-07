@@ -71,6 +71,7 @@ public interface Tie {
         private DefaultValueResolver defaultValueResolver;
         private SecretProvider secretProvider;
         private Clock clock = Clock.systemDefaultZone();
+        private Path workingDirectory;
 
         private Builder() {
         }
@@ -107,8 +108,18 @@ public interface Tie {
             return this;
         }
 
+        /**
+         * Working directory of the executions whose context does not set one; without it,
+         * {@code java.io.tmpdir}.
+         */
+        public Builder workingDirectory(Path workingDirectory) {
+            this.workingDirectory = workingDirectory;
+            return this;
+        }
+
         public Tie build() {
-            return new DefaultTie(Map.copyOf(transformers), defaultValueResolver, secretProvider, clock);
+            return new DefaultTie(Map.copyOf(transformers), defaultValueResolver, secretProvider, clock,
+                    workingDirectory);
         }
     }
 }

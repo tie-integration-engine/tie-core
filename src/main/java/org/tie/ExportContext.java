@@ -13,14 +13,14 @@ import org.tie.spi.RunListener;
  *
  * @param providedOutput   where the file goes when the output channel is a {@code ProvidedStreamChannel};
  *                         TIE writes the whole file and closes the stream
- * @param workingDirectory where the file is written before delivery; defaults to {@code java.io.tmpdir}
+ * @param workingDirectory where the file is written before delivery; null uses the {@link Tie}'s default,
+ *                         else {@code java.io.tmpdir}
  */
 public record ExportContext(Map<String, String> variables, RunListener listener, CancellationToken cancellation,
                             Supplier<OutputStream> providedOutput, Path workingDirectory) {
 
     public ExportContext {
         variables = Collections.unmodifiableMap(new LinkedHashMap<>(variables == null ? Map.of() : variables));
-        workingDirectory = workingDirectory == null ? Path.of(System.getProperty("java.io.tmpdir")) : workingDirectory;
     }
 
     public static Builder builder() {

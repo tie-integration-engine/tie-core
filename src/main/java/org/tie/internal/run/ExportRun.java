@@ -68,6 +68,7 @@ public final class ExportRun {
     private final DefaultValueResolver resolver;
     private final SecretProvider secrets;
     private final Clock clock;
+    private final Path workingDirectory;
     private final RunListener listener;
     private final List<LineRejection> rejections = new ArrayList<>();
     private final List<Warning> warnings = new ArrayList<>();
@@ -78,7 +79,8 @@ public final class ExportRun {
 
     public ExportRun(IntegrationDefinition definition, Iterator<Map<String, Object>> records, ExportContext context,
                      Map<String, FieldTransformer> transformers, DefaultValueResolver resolver,
-                     SecretProvider secrets, Clock clock) {
+                     SecretProvider secrets, Clock clock,
+                     Path defaultWorkingDirectory) {
         this.definition = definition;
         this.records = records;
         this.context = context;
@@ -86,6 +88,8 @@ public final class ExportRun {
         this.resolver = resolver;
         this.secrets = secrets;
         this.clock = clock;
+        this.workingDirectory = context == null || context.workingDirectory() == null ? defaultWorkingDirectory
+                : context.workingDirectory();
         this.listener = context == null || context.listener() == null ? NO_LISTENER : context.listener();
     }
 
@@ -98,7 +102,7 @@ public final class ExportRun {
                 .render(context.variables(), LocalDateTime.now(clock)) + "." + format.extension();
         Path temporary = null;
         try {
-            temporary = Files.createTempFile(context.workingDirectory(), "tie-", "-" + fileName);
+            temporary = Files.createTempFile(workingDirectory, "tie-", "-" + fileName);
             try (RecordWriter writer = RecordWriters.open(format, Files.newOutputStream(temporary), root)) {
                 while (records.hasNext()) {
                     if (context.cancellation() != null && context.cancellation().isCancellationRequested()) {
@@ -258,8 +262,8 @@ public final class ExportRun {
         if (definition.outputChannel() instanceof ProvidedStreamChannel && context.providedOutput() == null) {
             problems.add("a ProvidedStreamChannel output requires providedOutput in the context");
         }
-        if (!Files.isDirectory(context.workingDirectory())) {
-            problems.add("workingDirectory " + context.workingDirectory() + " does not exist");
+        if (!Files.isDirectory(workingDirectory)) {
+            problems.add("workingDirectory " + workingDirectory + " does not exist");
         }
         if (!problems.isEmpty()) {
             throw new ConfigurationException(problems);

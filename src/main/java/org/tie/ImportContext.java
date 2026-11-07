@@ -16,7 +16,8 @@ import org.tie.spi.RunListener;
  * Everything an import needs besides its definition (§5.2): the state the caller keeps (watermarks,
  * already-processed predicate) and the components of this run. Build it with {@link #builder(RecordConsumer)}.
  *
- * @param workingDirectory where TIE keeps working copies; defaults to {@code java.io.tmpdir}
+ * @param workingDirectory where TIE keeps working copies; null uses the {@link Tie}'s default, else
+ *                         {@code java.io.tmpdir}
  */
 public record ImportContext(Map<String, String> variables, Map<String, LocalDateTime> watermarks,
                             AlreadyProcessedPredicate alreadyProcessed, RecordConsumer consumer, RunListener listener,
@@ -27,7 +28,6 @@ public record ImportContext(Map<String, String> variables, Map<String, LocalDate
         variables = Collections.unmodifiableMap(new LinkedHashMap<>(variables == null ? Map.of() : variables));
         watermarks = Collections.unmodifiableMap(new LinkedHashMap<>(watermarks == null ? Map.of() : watermarks));
         providedInputs = providedInputs == null ? List.of() : List.copyOf(providedInputs);
-        workingDirectory = workingDirectory == null ? Path.of(System.getProperty("java.io.tmpdir")) : workingDirectory;
     }
 
     public static Builder builder(RecordConsumer consumer) {

@@ -31,13 +31,16 @@ public final class DefaultTie implements Tie {
     private final DefaultValueResolver defaultValueResolver;
     private final SecretProvider secretProvider;
     private final Clock clock;
+    private final Path workingDirectory;
 
     public DefaultTie(Map<String, FieldTransformer> transformers, DefaultValueResolver defaultValueResolver,
-                      SecretProvider secretProvider, Clock clock) {
+                      SecretProvider secretProvider, Clock clock, Path workingDirectory) {
         this.transformers = Map.copyOf(transformers);
         this.defaultValueResolver = defaultValueResolver;
         this.secretProvider = secretProvider;
         this.clock = clock;
+        this.workingDirectory = workingDirectory != null ? workingDirectory
+                : Path.of(System.getProperty("java.io.tmpdir"));
     }
 
     @Override
@@ -51,13 +54,15 @@ public final class DefaultTie implements Tie {
 
     @Override
     public ImportResult importFiles(IntegrationDefinition definition, ImportContext context) {
-        return new ImportRun(definition, context, transformers, defaultValueResolver, secretProvider, clock).run();
+        return new ImportRun(definition, context, transformers, defaultValueResolver, secretProvider, clock,
+                workingDirectory).run();
     }
 
     @Override
     public ExportResult exportRecords(IntegrationDefinition definition, Iterator<Map<String, Object>> records,
                                       ExportContext context) {
-        return new ExportRun(definition, records, context, transformers, defaultValueResolver, secretProvider, clock).run();
+        return new ExportRun(definition, records, context, transformers, defaultValueResolver, secretProvider, clock,
+                workingDirectory).run();
     }
 
     @Override
