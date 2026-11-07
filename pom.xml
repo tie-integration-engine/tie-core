@@ -72,6 +72,14 @@
                     </archive>
                 </configuration>
             </plugin>
+            <!-- Integration tests run with a small heap: LargeXlsxIT checks that reading is incremental (AC-36). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <argLine>-Xmx256m</argLine>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-enforcer-plugin</artifactId>

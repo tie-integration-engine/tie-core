@@ -72,6 +72,9 @@ public final class ImportEngine {
     }
 
     public LineResult process(LineInput input) {
+        if (order.isEmpty()) {
+            return passThrough(input);
+        }
         Map<String, Object> values = new LinkedHashMap<>();
         FieldValues soFar = new FieldValues(Collections.unmodifiableMap(values), input.rawValues());
         Map<String, String> texts = new HashMap<>();
@@ -101,6 +104,13 @@ public final class ImportEngine {
         }
         kept.forEach(values::remove);
         return new LineResult.Accepted(FieldValues.frozen(values, declaredNames, input.rawValues()));
+    }
+
+    /** A layout without fields delivers the values as read, as STRING; empty text is an empty value (AC-40). */
+    private static LineResult passThrough(LineInput input) {
+        Map<String, Object> values = new LinkedHashMap<>();
+        input.rawValues().forEach((key, value) -> values.put(key, emptyToNull(value)));
+        return new LineResult.Accepted(FieldValues.frozen(values, input.rawValues().keySet(), input.rawValues()));
     }
 
     // ---------------------------------------------------------------- one field
