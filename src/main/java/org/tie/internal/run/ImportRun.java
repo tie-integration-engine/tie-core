@@ -68,6 +68,8 @@ import org.tie.internal.validation.SpiValidator;
 import org.tie.spi.DefaultValueResolver;
 import org.tie.spi.FieldTransformer;
 import org.tie.spi.RunListener;
+import org.tie.spi.SecretProvider;
+import org.tie.internal.channel.sftp.SftpInput;
 
 /**
  * One execution of {@code Tie.importFiles} (§3): validates everything before any I/O (INV-3), lists
@@ -85,7 +87,7 @@ public final class ImportRun {
     private final ImportContext context;
     private final Map<String, FieldTransformer> transformers;
     private final DefaultValueResolver resolver;
-    private final boolean hasSecretProvider;
+    private final SecretProvider secrets;
     private final Clock clock;
     private final RunListener listener;
     private final List<Warning> warnings = new ArrayList<>();
@@ -93,12 +95,12 @@ public final class ImportRun {
     private Map<String, ImportEngine> engines;
 
     public ImportRun(IntegrationDefinition definition, ImportContext context, Map<String, FieldTransformer> transformers,
-                     DefaultValueResolver resolver, boolean hasSecretProvider, Clock clock) {
+                     DefaultValueResolver resolver, SecretProvider secrets, Clock clock) {
         this.definition = definition;
         this.context = context;
         this.transformers = transformers;
         this.resolver = resolver;
-        this.hasSecretProvider = hasSecretProvider;
+        this.secrets = secrets;
         this.clock = clock;
         this.listener = context == null || context.listener() == null ? NO_LISTENER : context.listener();
     }
@@ -158,7 +160,7 @@ public final class ImportRun {
             throw new ConfigurationException("definition is required");
         }
         List<String> problems = new ArrayList<>(DefinitionValidator.validate(definition));
-        problems.addAll(SpiValidator.validate(definition, transformers.keySet(), hasSecretProvider));
+        problems.addAll(SpiValidator.validate(definition, transformers.keySet(), secrets != null));
         if (definition.direction() != null && definition.direction() != Direction.IMPORT) {
             problems.add("importFiles requires an IMPORT definition");
         }
@@ -209,12 +211,6 @@ public final class ImportRun {
             } catch (NamePatternException ignored) {
                 // reported by the definition validator
             }
-            if (report.channel() instanceof SftpChannel) {
-                problems.add("SFTP channels are not available in this build yet");
-            }
-        }
-        if (definition.inputChannels().stream().anyMatch(SftpChannel.class::isInstance)) {
-            problems.add("SFTP channels are not available in this build yet");
         }
         if (!problems.isEmpty()) {
             throw new ConfigurationException(problems);
@@ -310,10 +306,10 @@ public final class ImportRun {
         return null;
     }
 
-    private static InputChannel open(ChannelDefinition channel) {
+    private InputChannel open(ChannelDefinition channel) {
         return switch (channel) {
             case LocalDirectoryChannel local -> new LocalDirectoryInput(local);
-            case SftpChannel ignored -> throw new IllegalStateException("SFTP is rejected by validation");
+            case SftpChannel sftp -> new SftpInput(sftp, secrets);
             case ProvidedStreamChannel ignored -> throw new IllegalStateException("provided streams are not listed");
         };
     }
@@ -495,7 +491,7 @@ public final class ImportRun {
                 variables.put("layout", layout.name());
                 String name = NamePattern.parse(report.namePattern()).render(variables, LocalDateTime.now(clock)) + "."
                         + report.format().extension();
-                try (OutputChannel channel = OutputChannels.open(report.channel(), clock, null)) {
+                try (OutputChannel channel = OutputChannels.open(report.channel(), clock, null, secrets)) {
                     Path file = temporary();
                     ReportWriter.write(report.format(), file, buffer.keys(), buffer.lines());
                     Delivered delivered = channel.deliver(file, name, onExistingFile(report.channel()), this::readerWarning);

@@ -48,6 +48,7 @@ import org.tie.internal.validation.SpiValidator;
 import org.tie.spi.DefaultValueResolver;
 import org.tie.spi.FieldTransformer;
 import org.tie.spi.RunListener;
+import org.tie.spi.SecretProvider;
 
 /**
  * One execution of {@code Tie.exportRecords} (§3 "Happy path — exportación"): the records are written
@@ -65,7 +66,7 @@ public final class ExportRun {
     private final ExportContext context;
     private final Map<String, FieldTransformer> transformers;
     private final DefaultValueResolver resolver;
-    private final boolean hasSecretProvider;
+    private final SecretProvider secrets;
     private final Clock clock;
     private final RunListener listener;
     private final List<LineRejection> rejections = new ArrayList<>();
@@ -77,13 +78,13 @@ public final class ExportRun {
 
     public ExportRun(IntegrationDefinition definition, Iterator<Map<String, Object>> records, ExportContext context,
                      Map<String, FieldTransformer> transformers, DefaultValueResolver resolver,
-                     boolean hasSecretProvider, Clock clock) {
+                     SecretProvider secrets, Clock clock) {
         this.definition = definition;
         this.records = records;
         this.context = context;
         this.transformers = transformers;
         this.resolver = resolver;
-        this.hasSecretProvider = hasSecretProvider;
+        this.secrets = secrets;
         this.clock = clock;
         this.listener = context == null || context.listener() == null ? NO_LISTENER : context.listener();
     }
@@ -111,7 +112,7 @@ public final class ExportRun {
                 }
                 writer.finish();
             }
-            OutputChannel channel = OutputChannels.open(definition.outputChannel(), clock, context.providedOutput());
+            OutputChannel channel = OutputChannels.open(definition.outputChannel(), clock, context.providedOutput(), secrets);
             try (channel) {
                 Delivered delivered = channel.deliver(temporary, fileName, onExistingFile(definition.outputChannel()),
                         this::warn);
@@ -234,7 +235,7 @@ public final class ExportRun {
             throw new ConfigurationException("definition is required");
         }
         List<String> problems = new ArrayList<>(DefinitionValidator.validate(definition));
-        problems.addAll(SpiValidator.validate(definition, transformers.keySet(), hasSecretProvider));
+        problems.addAll(SpiValidator.validate(definition, transformers.keySet(), secrets != null));
         if (definition.direction() != null && definition.direction() != Direction.EXPORT) {
             problems.add("exportRecords requires an EXPORT definition");
         }
@@ -256,9 +257,6 @@ public final class ExportRun {
         }
         if (definition.outputChannel() instanceof ProvidedStreamChannel && context.providedOutput() == null) {
             problems.add("a ProvidedStreamChannel output requires providedOutput in the context");
-        }
-        if (definition.outputChannel() instanceof SftpChannel) {
-            problems.add("SFTP channels are not available in this build yet");
         }
         if (!Files.isDirectory(context.workingDirectory())) {
             problems.add("workingDirectory " + context.workingDirectory() + " does not exist");

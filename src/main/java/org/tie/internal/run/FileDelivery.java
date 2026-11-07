@@ -21,6 +21,7 @@ import org.tie.internal.delivery.Delivered;
 import org.tie.internal.delivery.OutputChannel;
 import org.tie.internal.validation.DefinitionValidator;
 import org.tie.internal.validation.SpiValidator;
+import org.tie.spi.SecretProvider;
 
 /** {@code Tie.deliverFile} (§5.2, A13): an existing local file delivered as is. */
 public final class FileDelivery {
@@ -29,7 +30,7 @@ public final class FileDelivery {
     }
 
     public static DeliveryResult deliver(ChannelDefinition channel, Path file, String remoteName, DeliveryContext context,
-                                         boolean hasSecretProvider, Clock clock) {
+                                         SecretProvider secrets, Clock clock) {
         List<String> problems = new ArrayList<>();
         if (channel == null) {
             problems.add("outputChannel is required");
@@ -37,10 +38,7 @@ public final class FileDelivery {
             problems.add("deliverFile requires an SFTP or local directory channel, not a ProvidedStreamChannel");
         } else {
             problems.addAll(DefinitionValidator.validateChannel("outputChannel", channel));
-            problems.addAll(SpiValidator.validateChannel("outputChannel", channel, hasSecretProvider));
-            if (channel instanceof SftpChannel) {
-                problems.add("SFTP channels are not available in this build yet");
-            }
+            problems.addAll(SpiValidator.validateChannel("outputChannel", channel, secrets != null));
         }
         if (remoteName == null || !FileNames.isSafe(remoteName)) {
             problems.add("remoteName '" + remoteName + "' is not a safe file name");
@@ -52,7 +50,7 @@ public final class FileDelivery {
             throw new ConfigurationException(problems);
         }
         List<Warning> warnings = new ArrayList<>();
-        try (OutputChannel output = OutputChannels.open(channel, clock, null)) {
+        try (OutputChannel output = OutputChannels.open(channel, clock, null, secrets)) {
             Delivered delivered = output.deliver(file, remoteName, onExistingFile(channel), warning -> {
                 warnings.add(warning);
                 if (context != null && context.listener() != null) {

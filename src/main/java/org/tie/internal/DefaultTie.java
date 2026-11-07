@@ -51,19 +51,18 @@ public final class DefaultTie implements Tie {
 
     @Override
     public ImportResult importFiles(IntegrationDefinition definition, ImportContext context) {
-        return new ImportRun(definition, context, transformers, defaultValueResolver, secretProvider != null, clock).run();
+        return new ImportRun(definition, context, transformers, defaultValueResolver, secretProvider, clock).run();
     }
 
     @Override
     public ExportResult exportRecords(IntegrationDefinition definition, Iterator<Map<String, Object>> records,
                                       ExportContext context) {
-        return new ExportRun(definition, records, context, transformers, defaultValueResolver, secretProvider != null,
-                clock).run();
+        return new ExportRun(definition, records, context, transformers, defaultValueResolver, secretProvider, clock).run();
     }
 
     @Override
     public DeliveryResult deliverFile(ChannelDefinition outputChannel, Path file, String remoteName,
                                       DeliveryContext context) {
-        return FileDelivery.deliver(outputChannel, file, remoteName, context, secretProvider != null, clock);
+        return FileDelivery.deliver(outputChannel, file, remoteName, context, secretProvider, clock);
     }
 }
