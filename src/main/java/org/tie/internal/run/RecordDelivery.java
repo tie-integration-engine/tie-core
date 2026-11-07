@@ -49,6 +49,13 @@ final class RecordDelivery {
     private final CancellationToken cancellation;
     private final String fileName;
     private final Consumer<LineRejection> rejections;
+    private final AppliedLines appliedLines;
+
+    /** Receives every applied line, for result reports with applied lines. */
+    @FunctionalInterface
+    interface AppliedLines {
+        void applied(String layout, int lineNumber, Map<String, String> rawValues);
+    }
 
     private int line;
     private int linesRead;
@@ -58,7 +65,7 @@ final class RecordDelivery {
 
     RecordDelivery(Map<String, ImportEngine> engines, RecordConsumer consumer, ConsumerErrorPolicy errorPolicy,
                    Integer maxRejected, CancellationToken cancellation, String fileName,
-                   Consumer<LineRejection> rejections) {
+                   Consumer<LineRejection> rejections, AppliedLines appliedLines) {
         this.engines = engines;
         this.consumer = consumer;
         this.errorPolicy = errorPolicy;
@@ -66,6 +73,7 @@ final class RecordDelivery {
         this.cancellation = cancellation;
         this.fileName = fileName;
         this.rejections = rejections;
+        this.appliedLines = appliedLines;
     }
 
     int linesRead() {
@@ -161,6 +169,7 @@ final class RecordDelivery {
             return true;
         }
         applied++;
+        appliedLines.applied(layout.name(), lineNumber, record.input().rawValues());
         return false;
     }
 

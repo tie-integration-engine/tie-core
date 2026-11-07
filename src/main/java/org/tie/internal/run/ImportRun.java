@@ -30,6 +30,15 @@ import org.tie.ProvidedInput;
 import org.tie.ReceivedFile;
 import org.tie.RemoteFile;
 import org.tie.ResultStatus;
+import org.tie.ReportRef;
+import org.tie.config.OnExistingFile;
+import org.tie.config.ReportMode;
+import org.tie.config.ResultReport;
+import org.tie.internal.delivery.Delivered;
+import org.tie.internal.delivery.OutputChannel;
+import org.tie.internal.report.ReportBuffer;
+import org.tie.internal.report.ReportLine;
+import org.tie.internal.report.ReportWriter;
 import org.tie.Warning;
 import org.tie.WarningCode;
 import org.tie.config.ChannelDefinition;
@@ -68,6 +77,7 @@ import org.tie.spi.RunListener;
 public final class ImportRun {
 
     private static final Logger LOG = LoggerFactory.getLogger(ImportRun.class);
+    private static final Set<String> REPORT_VARIABLES = Set.of("sourceName", "layout");
     private static final RunListener NO_LISTENER = new RunListener() {
     };
 
@@ -79,6 +89,7 @@ public final class ImportRun {
     private final Clock clock;
     private final RunListener listener;
     private final List<Warning> warnings = new ArrayList<>();
+    private final List<ReportRef> reports = new ArrayList<>();
     private Map<String, ImportEngine> engines;
 
     public ImportRun(IntegrationDefinition definition, ImportContext context, Map<String, FieldTransformer> transformers,
@@ -133,7 +144,7 @@ public final class ImportRun {
                     }
                 }
             }
-            return new ImportResult(status, files, watermarks, warnings, List.of(), null);
+            return new ImportResult(status, files, watermarks, warnings, reports, null);
         } finally {
             channels.forEach(InputChannel::close);
             closeProvidedStreams();
@@ -187,6 +198,20 @@ public final class ImportRun {
         }
         if (!Files.isDirectory(context.workingDirectory())) {
             problems.add("workingDirectory " + context.workingDirectory() + " does not exist");
+        }
+        ResultReport report = definition.resultReport();
+        if (report.mode() != ReportMode.NONE && report.namePattern() != null) {
+            try {
+                NamePattern.parse(report.namePattern()).variables().stream()
+                        .filter(name -> !REPORT_VARIABLES.contains(name) && !context.variables().containsKey(name))
+                        .forEach(name -> problems.add("resultReport: variable '" + name
+                                + "' of namePattern is not in the context"));
+            } catch (NamePatternException ignored) {
+                // reported by the definition validator
+            }
+            if (report.channel() instanceof SftpChannel) {
+                problems.add("SFTP channels are not available in this build yet");
+            }
         }
         if (definition.inputChannels().stream().anyMatch(SftpChannel.class::isInstance)) {
             problems.add("SFTP channels are not available in this build yet");
@@ -301,6 +326,7 @@ public final class ImportRun {
         private final Candidate candidate;
         private final List<Warning> fileWarnings = new ArrayList<>();
         private final List<Path> temporaries = new ArrayList<>();
+        private final Map<String, ReportBuffer> reportBuffers = new LinkedHashMap<>();
         private RecordDelivery delivery;
 
         FileRun(Candidate candidate) {
@@ -362,7 +388,7 @@ public final class ImportRun {
             }
             delivery = new RecordDelivery(engines, context.consumer(), definition.consumerErrorPolicy(),
                     definition.rejectionThreshold().maxRejected(), context.cancellation(), candidate.name(),
-                    this::rejected);
+                    this::rejected, this::applied);
             try (RecordReader reader = file != null ? reader(format, file)
                     : RecordReaders.open(format, candidate.provided().stream(), layout, definition.layouts(),
                     this::readerWarning, candidate.name())) {
@@ -373,6 +399,7 @@ public final class ImportRun {
             if (candidate.remote() != null) {
                 postSuccessAction();
             }
+            writeReports();
             return result(FileStatus.SUCCESS, null);
         }
 
@@ -429,6 +456,57 @@ public final class ImportRun {
 
         private void rejected(LineRejection rejection) {
             safely(() -> listener.onLineRejected(rejection));
+            if (definition.resultReport().mode() != ReportMode.NONE) {
+                report(rejection.layout()).add(ReportLine.rejected(rejection.lineNumber(), rejection.rawValues(),
+                        rejection.errors()));
+            }
+        }
+
+        private void applied(String layout, int lineNumber, Map<String, String> rawValues) {
+            if (definition.resultReport().mode() == ReportMode.REJECTED_AND_APPLIED) {
+                report(layout).add(ReportLine.applied(lineNumber, rawValues));
+            }
+        }
+
+        private ReportBuffer report(String layout) {
+            return reportBuffers.computeIfAbsent(layout, name -> {
+                try {
+                    return new ReportBuffer(context.workingDirectory(), name);
+                } catch (IOException e) {
+                    throw new FileFailure(FileErrorType.CHANNEL, "cannot create the report buffer in the working"
+                            + " directory: " + e.getMessage(), null, e);
+                }
+            });
+        }
+
+        /** One report per input file and layout with lines (§4.1); a failure is a warning (A9). */
+        private void writeReports() {
+            ResultReport report = definition.resultReport();
+            if (report.mode() == ReportMode.NONE) {
+                return;
+            }
+            for (Layout layout : definition.layouts()) {
+                ReportBuffer buffer = reportBuffers.get(layout.name());
+                if (buffer == null || buffer.count() == 0) {
+                    continue;
+                }
+                Map<String, String> variables = new LinkedHashMap<>(context.variables());
+                variables.put("sourceName", FileNames.baseName(candidate.name()));
+                variables.put("layout", layout.name());
+                String name = NamePattern.parse(report.namePattern()).render(variables, LocalDateTime.now(clock)) + "."
+                        + report.format().extension();
+                try (OutputChannel channel = OutputChannels.open(report.channel(), clock, null)) {
+                    Path file = temporary();
+                    ReportWriter.write(report.format(), file, buffer.keys(), buffer.lines());
+                    Delivered delivered = channel.deliver(file, name, onExistingFile(report.channel()), this::readerWarning);
+                    reports.add(new ReportRef(candidate.name(), layout.name(), delivered.fileName(),
+                            delivered.destination(), ResultStatus.SUCCESS));
+                } catch (ChannelException | IOException | java.io.UncheckedIOException e) {
+                    readerWarning(new Warning(WarningCode.REPORT_FAILED, "cannot deliver report " + name + ": "
+                            + Exceptions.message(e), candidate.name()));
+                    reports.add(new ReportRef(candidate.name(), layout.name(), name, null, ResultStatus.FAILED));
+                }
+            }
         }
 
         private void readerWarning(Warning warning) {
@@ -473,6 +551,14 @@ public final class ImportRun {
                             + e.getMessage(), candidate.name()), null);
                 }
             }
+            for (ReportBuffer buffer : reportBuffers.values()) {
+                try {
+                    buffer.close();
+                } catch (IOException e) {
+                    warn(new Warning(WarningCode.TEMP_CLEANUP_FAILED, "cannot delete a report buffer: " + e.getMessage(),
+                            candidate.name()), null);
+                }
+            }
             if (candidate.provided() != null) {
                 closeQuietly(candidate.provided().stream());
             }
@@ -494,6 +580,14 @@ public final class ImportRun {
             watermarks.merge(candidate.layout().name(), candidate.timestamp(),
                     (current, next) -> next.isAfter(current) ? next : current);
         }
+    }
+
+    private static OnExistingFile onExistingFile(ChannelDefinition channel) {
+        return switch (channel) {
+            case LocalDirectoryChannel local -> local.onExistingFile();
+            case SftpChannel sftp -> sftp.onExistingFile();
+            case ProvidedStreamChannel ignored -> OnExistingFile.OVERWRITE;
+        };
     }
 
     private FileResult notProcessed(Candidate candidate) {

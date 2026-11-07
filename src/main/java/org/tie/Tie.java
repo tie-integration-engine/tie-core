@@ -1,10 +1,13 @@
 package org.tie;
 
+import java.nio.file.Path;
 import java.time.Clock;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.tie.config.ChannelDefinition;
 import org.tie.config.IntegrationDefinition;
 import org.tie.internal.DefaultTie;
 import org.tie.spi.DefaultValueResolver;
@@ -15,7 +18,6 @@ import org.tie.spi.SecretProvider;
  * Entry point of TIE (§5.2). Instances hold no state between executions and are safe for concurrent
  * use by different executions.
  *
- * <p>Exports and file delivery are added in later phases of the implementation plan.
  */
 public interface Tie {
 
@@ -36,6 +38,28 @@ public interface Tie {
      *                                touched (A1)
      */
     ImportResult importFiles(IntegrationDefinition definition, ImportContext context);
+
+    /**
+     * Runs an export (§3): each record passes through the export field engine; valid ones are written in
+     * streaming to the working directory and the file is delivered at the end, unless the threshold is
+     * exceeded or the export is cancelled (A11, A15).
+     *
+     * @param records typed values per field name; a child layout's records are a {@code List<Map>} under
+     *                its {@code nestedKey}
+     * @throws ConfigurationException if the definition, the context or the SPIs are invalid
+     */
+    ExportResult exportRecords(IntegrationDefinition definition, Iterator<Map<String, Object>> records,
+                               ExportContext context);
+
+    /**
+     * Delivers an existing local file as is through an output channel (§5.2), with the same rules as an
+     * export: temporary name and rename, {@code onExistingFile}, host key and secrets. The local file is
+     * never modified (INV-17); delivery failures are returned, not thrown.
+     *
+     * @throws ConfigurationException if the channel is invalid or a {@code ProvidedStreamChannel}, the name
+     *                                is not safe, or the file does not exist or cannot be read
+     */
+    DeliveryResult deliverFile(ChannelDefinition outputChannel, Path file, String remoteName, DeliveryContext context);
 
     static Builder builder() {
         return new Builder();

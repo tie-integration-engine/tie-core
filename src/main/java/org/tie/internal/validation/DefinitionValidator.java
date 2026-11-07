@@ -69,6 +69,13 @@ public final class DefinitionValidator {
         return List.copyOf(validator.problems);
     }
 
+    /** Problems of one output channel on its own, for {@code deliverFile}. */
+    public static List<String> validateChannel(String path, ChannelDefinition channel) {
+        DefinitionValidator validator = new DefinitionValidator();
+        validator.channel(path, channel);
+        return List.copyOf(validator.problems);
+    }
+
     private void problem(String problem) {
         problems.add(problem);
     }
@@ -461,6 +468,9 @@ public final class DefinitionValidator {
         }
         if (!definition.inputChannels().isEmpty()) {
             problem("inputChannels do not apply to exports");
+        }
+        if (definition.deliveryStrategy() == DeliveryStrategy.VALIDATE_THEN_DELIVER) {
+            problem("deliveryStrategy VALIDATE_THEN_DELIVER does not apply to exports");
         }
         if (!definition.duplicateProtection().equals(DuplicateProtection.NONE)) {
             problem("duplicateProtection does not apply to exports");

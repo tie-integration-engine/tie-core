@@ -67,7 +67,7 @@ public final class ImportEngine {
             indexes.put(field.name(), names.size());
             names.add(field.name());
         }
-        this.order = topologicalOrder(byKey);
+        this.order = FieldOrder.of(layout.fields()).stream().map(field -> byKey.get(key(field.name()))).toList();
         this.declaredNames = List.copyOf(names);
         this.declaredIndex = Map.copyOf(indexes);
     }
@@ -213,36 +213,6 @@ public final class ImportEngine {
     }
 
     // ---------------------------------------------------------------- helpers
-
-    /** Declaration order, except that a copy source is always computed before its copies (INV-6). */
-    private static List<FieldPlan> topologicalOrder(Map<String, FieldPlan> byKey) {
-        List<FieldPlan> order = new ArrayList<>();
-        Set<String> visited = new HashSet<>();
-        for (String key : byKey.keySet()) {
-            visit(key, byKey, visited, new HashSet<>(), order);
-        }
-        return List.copyOf(order);
-    }
-
-    private static void visit(String key, Map<String, FieldPlan> byKey, Set<String> visited, Set<String> inProgress,
-                              List<FieldPlan> order) {
-        if (visited.contains(key)) {
-            return;
-        }
-        if (!inProgress.add(key)) {
-            throw new IllegalStateException("copy cycle through field '" + key + "'");
-        }
-        FieldPlan plan = byKey.get(key);
-        String source = plan.field().copyFrom();
-        if (source != null) {
-            if (!byKey.containsKey(key(source))) {
-                throw new IllegalStateException("copyFrom '" + source + "' does not exist");
-            }
-            visit(key(source), byKey, visited, inProgress, order);
-        }
-        visited.add(key);
-        order.add(plan);
-    }
 
     private static String exceptionMessage(Throwable e) {
         return Exceptions.message(e);

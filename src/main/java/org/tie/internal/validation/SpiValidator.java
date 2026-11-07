@@ -45,6 +45,15 @@ public final class SpiValidator {
         return problems;
     }
 
+    /** Secret references of one channel without a SecretProvider, for {@code deliverFile}. */
+    public static List<String> validateChannel(String path, ChannelDefinition channel, boolean hasSecretProvider) {
+        List<String> problems = new ArrayList<>();
+        if (!hasSecretProvider) {
+            secrets(path, channel, problems);
+        }
+        return problems;
+    }
+
     private static void secrets(String path, ChannelDefinition channel, List<String> problems) {
         if (!(channel instanceof SftpChannel sftp)) {
             return;
