@@ -15,7 +15,7 @@ import org.tie.spi.SecretProvider;
  * Entry point of TIE (§5.2). Instances hold no state between executions and are safe for concurrent
  * use by different executions.
  *
- * <p>Imports, exports and file delivery are added in later phases of the implementation plan.
+ * <p>Exports and file delivery are added in later phases of the implementation plan.
  */
 public interface Tie {
 
@@ -26,6 +26,16 @@ public interface Tie {
      * @return every problem found; empty when the definition is valid
      */
     List<String> validate(IntegrationDefinition definition);
+
+    /**
+     * Runs an import (§3): selects the candidate files of every input channel, reads them in streaming,
+     * and hands each valid typed record to the context's consumer.
+     *
+     * @return the result, with the new watermarks to store; failures of files are reported here
+     * @throws ConfigurationException if the definition, the context or the SPIs are invalid; no file is
+     *                                touched (A1)
+     */
+    ImportResult importFiles(IntegrationDefinition definition, ImportContext context);
 
     static Builder builder() {
         return new Builder();

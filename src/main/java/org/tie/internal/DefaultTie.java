@@ -4,8 +4,11 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.tie.ImportContext;
+import org.tie.ImportResult;
 import org.tie.Tie;
 import org.tie.config.IntegrationDefinition;
+import org.tie.internal.run.ImportRun;
 import org.tie.internal.validation.DefinitionValidator;
 import org.tie.internal.validation.SpiValidator;
 import org.tie.spi.DefaultValueResolver;
@@ -37,11 +40,8 @@ public final class DefaultTie implements Tie {
         return List.copyOf(problems);
     }
 
-    DefaultValueResolver defaultValueResolver() {
-        return defaultValueResolver;
-    }
-
-    Clock clock() {
-        return clock;
+    @Override
+    public ImportResult importFiles(IntegrationDefinition definition, ImportContext context) {
+        return new ImportRun(definition, context, transformers, defaultValueResolver, secretProvider != null, clock).run();
     }
 }

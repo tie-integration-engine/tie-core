@@ -22,6 +22,7 @@ import org.tie.config.OnUnmatched;
 import org.tie.config.Translation;
 import org.tie.config.TranslationDirection;
 import org.tie.config.Validations;
+import org.tie.internal.Exceptions;
 import org.tie.spi.DefaultValueResolver;
 import org.tie.spi.FieldTransformer;
 
@@ -243,8 +244,8 @@ public final class ImportEngine {
         order.add(plan);
     }
 
-    static String exceptionMessage(Throwable e) {
-        return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+    private static String exceptionMessage(Throwable e) {
+        return Exceptions.message(e);
     }
 
     private static String emptyToNull(String value) {
