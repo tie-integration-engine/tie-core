@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tie/tie/tie-definition.schema.json",
+  "title": "TIE integration definition",
+  "description": "Declarative definition of a TIE import or export (version 1). Structural checks only: cross-field rules are enforced by the loader.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "id", "direction", "layouts"],
+  "properties": {
+    "version": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "direction": { "enum": ["IMPORT", "EXPORT"] },
+    "layouts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/layout" } },
+    "inputChannels": { "type": "array", "items": { "$ref": "#/$defs/channel" } },
+    "outputChannel": { "$ref": "#/$defs/channel" },
+    "deliveryStrategy": { "enum": ["STREAMING", "VALIDATE_THEN_DELIVER"] },
+    "rejectionThreshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxRejected": { "type": "integer", "minimum": 0 },
+        "maxRejectedPercent": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "consumerErrorPolicy": { "enum": ["REJECT_LINE", "ABORT_FILE"] },
+    "duplicateProtection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "watermark": { "type": "boolean" },
+        "postSuccessAction": { "$ref": "#/$defs/postSuccessAction" }
+      }
+    },
+    "resultReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["NONE", "REJECTED", "REJECTED_AND_APPLIED"] },
+        "format": { "$ref": "#/$defs/fileFormat" },
+        "channel": { "$ref": "#/$defs/channel" },
+        "namePattern": { "type": "string", "minLength": 1 }
+      }
+    },
+    "outputNamePattern": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "char": { "type": "string", "minLength": 1, "maxLength": 1 },
+    "encoding": { "type": "string", "minLength": 1 },
+    "fileFormat": { "enum": ["CSV", "XLSX", "XML", "JSON"] },
+    "onExistingFile": { "enum": ["SUFFIX", "FAIL", "OVERWRITE"] },
+    "maxFileSize": { "type": "integer", "minimum": 1 },
+
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "fileNamePattern": { "type": "string", "minLength": 1 },
+        "allowedFormats": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/fileFormat" } },
+        "formatOptions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "csv": { "$ref": "#/$defs/csvOptions" },
+            "xlsx": { "$ref": "#/$defs/xlsxOptions" },
+            "xml": { "$ref": "#/$defs/xmlOptions" },
+            "json": { "$ref": "#/$defs/jsonOptions" }
+          }
+        },
+        "columnLocation": { "enum": ["POSITION", "HEADER", "LETTER"] },
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } },
+        "parent": { "type": "string", "minLength": 1 },
+        "nestedKey": { "type": "string", "minLength": 1 },
+        "onParentRejected": { "enum": ["CASCADE", "PROCESS"] }
+      }
+    },
+
+    "csvOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "separator": { "$ref": "#/$defs/char" },
+        "quote": { "$ref": "#/$defs/char" },
+        "encoding": { "$ref": "#/$defs/encoding" },
+        "hasHeader": { "type": "boolean" },
+        "firstDataRow": { "type": "integer", "minimum": 1 },
+        "skipBlankRecords": { "type": "boolean" }
+      }
+    },
+    "xlsxOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sheet": { "type": "string", "minLength": 1 },
+        "hasHeader": { "type": "boolean" },
+        "firstDataRow": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "xmlOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "recordElement": { "type": "string", "minLength": 1 },
+        "rootElement": { "type": "string", "minLength": 1 },
+        "encoding": { "$ref": "#/$defs/encoding" }
+      }
+    },
+    "jsonOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "recordProperty": { "type": "string", "minLength": 1 },
+        "encoding": { "$ref": "#/$defs/encoding" }
+      }
+    },
+
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "column": { "type": "string", "minLength": 1 },
+        "inInput": { "type": "boolean" },
+        "optional": { "type": "boolean" },
+        "copyFrom": { "type": "string", "minLength": 1 },
+        "textTransforms": { "type": "array", "items": { "$ref": "#/$defs/textTransform" } },
+        "translations": { "type": "array", "items": { "$ref": "#/$defs/translation" } },
+        "onUnmatched": { "enum": ["PASS", "EMPTY", "ERROR"] },
+        "transformer": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["STRING", "INTEGER", "DECIMAL", "DATE", "DATETIME", "BOOLEAN"] },
+        "typeFormat": { "$ref": "#/$defs/typeFormat" },
+        "validations": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "minLength": { "type": "integer", "minimum": 0 },
+            "maxLength": { "type": "integer", "minimum": 1 },
+            "regex": { "type": "string" },
+            "allowedValues": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+          }
+        },
+        "onEmpty": { "enum": ["EMPTY", "KEEP", "ERROR", "DEFAULT"] },
+        "defaultValue": { "type": "string" },
+        "outputAs": { "enum": ["NATIVE", "TEXT"] }
+      }
+    },
+
+    "textTransform": {
+      "oneOf": [
+        { "enum": ["UPPER", "LOWER", "STRIP_ACCENTS"] },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "enum": ["UPPER", "LOWER", "STRIP_ACCENTS"] } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "length", "char"],
+          "properties": {
+            "type": { "enum": ["PAD_LEFT", "PAD_RIGHT"] },
+            "length": { "type": "integer", "minimum": 1 },
+            "char": { "$ref": "#/$defs/char" }
+          }
+        }
+      ]
+    },
+    "translation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from"],
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": ["string", "null"] },
+        "direction": { "enum": ["IN", "OUT", "BOTH"] }
+      }
+    },
+    "typeFormat": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "description": "DateTimeFormatter pattern for DATE and DATETIME" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "decimalSeparator": { "$ref": "#/$defs/char" },
+            "groupingSeparator": { "$ref": "#/$defs/char" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["trueLiteral", "falseLiteral"],
+          "properties": {
+            "trueLiteral": { "type": "string", "minLength": 1 },
+            "falseLiteral": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+
+    "postSuccessAction": {
+      "oneOf": [
+        { "enum": ["NONE", "DELETE"] },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "enum": ["NONE", "DELETE"] } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "remoteFolder"],
+          "properties": {
+            "type": { "const": "MOVE" },
+            "remoteFolder": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+
+    "channel": {
+      "oneOf": [
+        { "const": "PROVIDED_STREAM" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "PROVIDED_STREAM" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "directory"],
+          "properties": {
+            "type": { "const": "LOCAL_DIRECTORY" },
+            "directory": { "type": "string", "minLength": 1 },
+            "maxFileSize": { "$ref": "#/$defs/maxFileSize" },
+            "onExistingFile": { "$ref": "#/$defs/onExistingFile" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "host", "username", "remoteDirectory"],
+          "properties": {
+            "type": { "const": "SFTP" },
+            "host": { "type": "string", "minLength": 1 },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "username": { "type": "string", "minLength": 1 },
+            "password": { "type": "string" },
+            "privateKey": { "type": "string" },
+            "privateKeyFile": { "type": "string", "minLength": 1 },
+            "privateKeyPassphrase": { "type": "string" },
+            "remoteDirectory": { "type": "string", "minLength": 1 },
+            "knownHostsFile": { "type": "string", "minLength": 1 },
+            "hostKeyFingerprint": { "type": "string", "minLength": 1 },
+            "insecureAcceptAnyHostKey": { "type": "boolean" },
+            "timeout": {
+              "type": "string",
+              "pattern": "^P(?:\\d+D)?(?:T(?:\\d+H)?(?:\\d+M)?(?:\\d+(?:[.,]\\d+)?S)?)?$",
+              "description": "ISO-8601 duration, for example PT30S"
+            },
+            "maxFileSize": { "$ref": "#/$defs/maxFileSize" },
+            "onExistingFile": { "$ref": "#/$defs/onExistingFile" }
+          },
+          "oneOf": [
+            { "required": ["password"] },
+            { "required": ["privateKey"] },
+            { "required": ["privateKeyFile"] }
+          ]
+        }
+      ]
+    }
+  }
+}

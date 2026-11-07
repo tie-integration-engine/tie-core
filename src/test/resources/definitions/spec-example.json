@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "id": "altas",
+  "direction": "IMPORT",
+  "inputChannels": [
+    {
+      "type": "SFTP",
+      "host": "sftp.example.com",
+      "username": "tie",
+      "password": "${secret:sftp}",
+      "remoteDirectory": "/in",
+      "knownHostsFile": "/etc/tie/known_hosts",
+      "timeout": "PT30S"
+    }
+  ],
+  "duplicateProtection": {
+    "watermark": true,
+    "postSuccessAction": { "type": "MOVE", "remoteFolder": "done/" }
+  },
+  "layouts": [
+    {
+      "name": "alta",
+      "fileNamePattern": "alta_{tenant}_{timestamp:yyyyMMddHHmmss}",
+      "allowedFormats": ["CSV", "XLSX"],
+      "formatOptions": { "csv": { "separator": ";" }, "xlsx": { "sheet": "Altas" } },
+      "columnLocation": "HEADER",
+      "fields": [
+        { "name": "nif", "textTransforms": ["UPPER", { "type": "PAD_LEFT", "length": 9, "char": "0" }] }
+      ]
+    }
+  ]
+}

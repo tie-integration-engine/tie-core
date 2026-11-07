@@ -1,0 +1,16 @@
+version: 1
+id: out
+direction: EXPORT
+outputChannel: { type: SFTP, host: h, username: u, password: p, remoteDirectory: /out, insecureAcceptAnyHostKey: true, onExistingFile: OVERWRITE }
+outputNamePattern: out_{timestamp:yyyyMMddHHmmss}
+rejectionThreshold: { maxRejected: 0 }
+layouts:
+  - name: out
+    allowedFormats: [JSON]
+    fields:
+      - { name: id, type: INTEGER, outputAs: TEXT }
+      - { name: total, type: DECIMAL, outputAs: NATIVE }
+  - name: item
+    parent: out
+    nestedKey: items
+    fields: [{ name: sku }]

@@ -7,6 +7,7 @@ public class ConfigurationException extends TieException {
 
     private static final long serialVersionUID = 1L;
 
+    @SuppressWarnings("serial") // always a List.copyOf result, which is serializable
     private final List<String> problems;
 
     public ConfigurationException(List<String> problems) {

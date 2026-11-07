@@ -1,0 +1,100 @@
+# Uses every import option at least once.
+version: 1
+id: full
+direction: IMPORT
+deliveryStrategy: VALIDATE_THEN_DELIVER
+consumerErrorPolicy: ABORT_FILE
+rejectionThreshold:
+  maxRejected: 5
+  maxRejectedPercent: 12.5
+duplicateProtection:
+  watermark: true
+  postSuccessAction: DELETE
+resultReport:
+  mode: REJECTED_AND_APPLIED
+  format: XLSX
+  channel: { type: LOCAL_DIRECTORY, directory: /data/reports, onExistingFile: FAIL }
+  namePattern: "{sourceName}_{layout}_result"
+inputChannels:
+  - type: SFTP
+    host: sftp.example.com
+    port: 2222
+    username: tie
+    privateKeyFile: /etc/tie/id_ed25519
+    privateKeyPassphrase: ${secret:passphrase}
+    remoteDirectory: /in
+    hostKeyFingerprint: "SHA256:abcdef"
+    timeout: PT1M30S
+    maxFileSize: 10485760
+  - { type: LOCAL_DIRECTORY, directory: /data/in, maxFileSize: 1000 }
+  - PROVIDED_STREAM
+layouts:
+  - name: people
+    fileNamePattern: people_{tenant}_{timestamp:yyyyMMdd}
+    allowedFormats: [CSV, XLSX]
+    columnLocation: LETTER
+    formatOptions:
+      csv:
+        separator: ";"
+        quote: "'"
+        encoding: ISO-8859-1
+        hasHeader: true
+        firstDataRow: 4
+        skipBlankRecords: true
+      xlsx: { sheet: People, hasHeader: false, firstDataRow: 3 }
+    fields:
+      - name: nif
+        column: A
+        textTransforms: [UPPER, STRIP_ACCENTS, { type: PAD_LEFT, length: 9, char: "0" }, { type: LOWER }]
+        validations: { minLength: 9, maxLength: 9, regex: "[0-9]{8}[A-Z]" }
+        transformer: normalizeNif
+      - name: sex
+        column: B
+        translations:
+          - { from: M, to: Male }
+          - { from: F, to: Female, direction: BOTH }
+          - { from: X, to: null, direction: IN }
+          - { from: Other, to: O, direction: OUT }
+        onUnmatched: EMPTY
+        validations: { allowedValues: [Male, Female] }
+        onEmpty: ERROR
+      - name: amount
+        column: C
+        type: DECIMAL
+        typeFormat: { decimalSeparator: ",", groupingSeparator: "." }
+        onEmpty: KEEP
+      - name: born
+        column: D
+        type: DATE
+        typeFormat: dd/MM/yyyy
+      - name: active
+        column: E
+        type: BOOLEAN
+        typeFormat: { trueLiteral: S, falseLiteral: N }
+      - name: country
+        inInput: false
+        defaultValue: ES
+      - name: code
+        inInput: false
+        copyFrom: nif
+        textTransforms: [{ type: PAD_RIGHT, length: 12, char: "_" }]
+        defaultValue: "${country}-x"
+        onEmpty: DEFAULT
+  - name: order
+    fileNamePattern: orders_{timestamp:yyyyMMddHHmmss}
+    allowedFormats: [JSON, XML]
+    columnLocation: HEADER
+    formatOptions:
+      json: { recordProperty: orders, encoding: UTF-8 }
+      xml: { recordElement: order, rootElement: orders, encoding: UTF-16 }
+    fields:
+      - { name: id, column: "@id", type: INTEGER }
+      - { name: email, column: customer.email, optional: true }
+      - { name: created, type: DATETIME }
+  - name: line
+    parent: order
+    nestedKey: lines
+    onParentRejected: PROCESS
+    fields:
+      - { name: sku }
+      - { name: qty, type: INTEGER, typeFormat: { groupingSeparator: "." } }
