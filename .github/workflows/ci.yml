@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      # The module needs the parent pom: check out the aggregator, then this commit in its submodule path.
+      - uses: actions/checkout@v4
+        with:
+          repository: tie-integration-engine/tie
+          submodules: recursive
+          path: tie
+      - name: Replace the submodule with the commit under test
+        run: rm -rf tie/tie-core
+      - uses: actions/checkout@v4
+        with:
+          path: tie/tie-core
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - name: Build and test (slow tests included), sources and javadoc
+        working-directory: tie
+        run: ./mvnw -B -ntp -P release install -pl tie-core -am
