@@ -12,7 +12,7 @@ import org.tie.internal.secret.SecretReference;
 
 /**
  * Checks that the SPIs a definition needs are registered (§5.3). A {@code defaultValue} with
- * {@code ${} without a resolver is <em>not</em> a problem: it fails per line (AC-04).
+ * <code>${</code> without a resolver is <em>not</em> a problem: it fails per line (AC-04).
  */
 public final class SpiValidator {
 
