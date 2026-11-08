@@ -424,6 +424,24 @@ class SftpIT {
         assertThat(export.error().type()).isEqualTo(FileErrorType.CHANNEL);
         assertThat(files(server.out())).doesNotContain("big.csv", "out.csv");
         assertThat(files(work)).isEmpty();
+        // §8: the temporary file cannot be removed over a cut connection: a warning, never the final name
+        assertThat(delivery.warnings()).extracting(w -> w.code()).containsExactly(WarningCode.TEMP_CLEANUP_FAILED);
+    }
+
+    @Test
+    void theLocalCopyIsOnlyValidDuringTheHook() throws IOException {
+        remote("alta_20261026120000.csv", "value\na\n");
+        List<Path> copies = new ArrayList<>();
+
+        importFiles(Tie.builder().build(), importFrom(server.channel("/in").build()), context().fileHook(new FileHook() {
+            @Override
+            public void onFileReceived(ReceivedFile file) {
+                copies.add(file.localCopy());
+                assertThat(file.localCopy()).exists();
+            }
+        }));
+
+        assertThat(copies).singleElement().satisfies(copy -> assertThat(copy).doesNotExist());
     }
 
     @Test
