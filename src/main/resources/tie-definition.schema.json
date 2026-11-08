@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tie/tie/tie-definition.schema.json",
+  "$id": "https://github.com/tie-integration-engine/tie/tie-definition.schema.json",
   "title": "TIE integration definition",
   "description": "Declarative definition of a TIE import or export (version 1). Structural checks only: cross-field rules are enforced by the loader.",
   "type": "object",
