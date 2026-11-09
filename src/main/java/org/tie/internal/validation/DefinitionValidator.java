@@ -126,6 +126,12 @@ public final class DefinitionValidator {
         parentCycles(definition);
     }
 
+    /** Whether every input channel is a ProvidedStreamChannel (and there is at least one). */
+    private static boolean onlyProvidedInputs(IntegrationDefinition definition) {
+        return !definition.inputChannels().isEmpty()
+                && definition.inputChannels().stream().allMatch(ProvidedStreamChannel.class::isInstance);
+    }
+
     private void layout(IntegrationDefinition definition, Layout layout, String label, Set<String> names) {
         boolean export = definition.direction() == Direction.EXPORT;
         boolean tabular = false;
@@ -134,6 +140,8 @@ public final class DefinitionValidator {
                 if (layout.fileNamePattern() != null) {
                     problem(label + ": fileNamePattern does not apply to exports (use outputNamePattern)");
                 }
+            } else if (layout.fileNamePattern() == null && onlyProvidedInputs(definition)) {
+                // provided inputs are never matched against a pattern (§3 step 4)
             } else if (isBlank(layout.fileNamePattern())) {
                 problem(label + ": fileNamePattern is required");
             } else {

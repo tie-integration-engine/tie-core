@@ -29,6 +29,7 @@ import org.tie.config.FileFormat;
 import org.tie.config.IntegrationDefinition;
 import org.tie.config.JsonOptions;
 import org.tie.config.Layout;
+import org.tie.config.LocalDirectoryChannel;
 import org.tie.config.OnEmpty;
 import org.tie.config.OutputAs;
 import org.tie.config.PostSuccessAction;
@@ -269,6 +270,25 @@ class DefinitionValidatorTest {
                     + " hasHeader (set columnLocation to POSITION or LETTER)");
             assertThat(problems(importWith(noHeader.columnLocation(ColumnLocation.POSITION)))).isEmpty();
             assertThat(problems(importWith(noHeader.columnLocation(ColumnLocation.HEADER).fields(List.of())))).isEmpty();
+        }
+
+        @Test
+        @DisplayName("AC-275 fileNamePattern stays required when any input channel lists files")
+        void patternRequiredWithListingChannels() {
+            Layout.Builder noPattern = csvLayout("alta").fileNamePattern(null);
+
+            assertThat(problems(importWith(noPattern))).containsExactly("layout 'alta': fileNamePattern is required");
+            assertThat(problems(importWith(noPattern).inputChannels(List.of(LocalDirectoryChannel.of(java.nio.file.Path.of("/in")),
+                    ProvidedStreamChannel.INSTANCE)))).containsExactly("layout 'alta': fileNamePattern is required");
+            assertThat(problems(importWith(noPattern).inputChannels(List.of(ProvidedStreamChannel.INSTANCE)))).isEmpty();
+        }
+
+        @Test
+        @DisplayName("AC-276 with only provided inputs a declared pattern is still validated")
+        void declaredPatternValidatedWithProvidedInputs() {
+            assertThat(problems(importWith(csvLayout("alta").fileNamePattern("alta_{timestamp:"))
+                    .inputChannels(List.of(ProvidedStreamChannel.INSTANCE))))
+                    .singleElement().asString().startsWith("layout 'alta': fileNamePattern");
         }
 
         @Test
