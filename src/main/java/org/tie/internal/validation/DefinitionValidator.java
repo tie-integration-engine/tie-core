@@ -126,6 +126,12 @@ public final class DefinitionValidator {
         parentCycles(definition);
     }
 
+    /** Whether every input channel is a ProvidedStreamChannel (and there is at least one). */
+    private static boolean onlyProvidedInputs(IntegrationDefinition definition) {
+        return !definition.inputChannels().isEmpty()
+                && definition.inputChannels().stream().allMatch(ProvidedStreamChannel.class::isInstance);
+    }
+
     private void layout(IntegrationDefinition definition, Layout layout, String label, Set<String> names) {
         boolean export = definition.direction() == Direction.EXPORT;
         boolean tabular = false;
@@ -134,6 +140,8 @@ public final class DefinitionValidator {
                 if (layout.fileNamePattern() != null) {
                     problem(label + ": fileNamePattern does not apply to exports (use outputNamePattern)");
                 }
+            } else if (layout.fileNamePattern() == null && onlyProvidedInputs(definition)) {
+                // provided inputs are never matched against a pattern (§3 step 4)
             } else if (isBlank(layout.fileNamePattern())) {
                 problem(label + ": fileNamePattern is required");
             } else {
@@ -185,8 +193,9 @@ public final class DefinitionValidator {
             }
         }
         if (formats.contains(FileFormat.XML)) {
-            if (isBlank(layout.formatOptions().xml().recordElement())) {
-                problem(label + ": xml recordElement is required");
+            String recordElement = layout.formatOptions().xml().recordElement();
+            if (export ? isBlank(recordElement) : recordElement != null && recordElement.isBlank()) {
+                problem(label + (export ? ": xml recordElement is required" : ": xml recordElement must not be blank"));
             }
             if (export && isBlank(layout.formatOptions().xml().rootElement())) {
                 problem(label + ": xml rootElement is required");
@@ -196,6 +205,9 @@ public final class DefinitionValidator {
             String recordProperty = layout.formatOptions().json().recordProperty();
             if (recordProperty != null && recordProperty.isBlank()) {
                 problem(label + ": json recordProperty must not be blank");
+            }
+            if (!export && recordProperty != null && layout.formatOptions().json().firstArray()) {
+                problem(label + ": json recordProperty and firstArray cannot be combined");
             }
         }
         boolean csvWithoutHeader = formats.contains(FileFormat.CSV) && !layout.formatOptions().csv().hasHeader();

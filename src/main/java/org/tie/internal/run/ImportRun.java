@@ -235,7 +235,9 @@ public final class ImportRun {
                              Map<String, LocalDateTime> watermarks) {
         List<Layout> roots = definition.layouts().stream().filter(Layout::isRoot).toList();
         Map<String, NamePattern> patterns = new LinkedHashMap<>();
-        roots.forEach(root -> patterns.put(root.name(), NamePattern.parse(root.fileNamePattern())));
+        // a root without a pattern only receives provided inputs (validated: every input channel is provided)
+        roots.stream().filter(root -> root.fileNamePattern() != null)
+                .forEach(root -> patterns.put(root.name(), NamePattern.parse(root.fileNamePattern())));
         boolean watermark = definition.duplicateProtection().watermark();
         List<Candidate> listed = new ArrayList<>();
         for (ChannelDefinition definitionChannel : definition.inputChannels()) {
@@ -260,7 +262,11 @@ public final class ImportRun {
                 List<Layout> matches = new ArrayList<>();
                 LocalDateTime timestamp = null;
                 for (Layout root : roots) {
-                    Optional<NamePattern.Match> match = patterns.get(root.name()).match(base, context.variables());
+                    NamePattern pattern = patterns.get(root.name());
+                    if (pattern == null) {
+                        continue;
+                    }
+                    Optional<NamePattern.Match> match = pattern.match(base, context.variables());
                     if (match.isPresent()) {
                         matches.add(root);
                         timestamp = match.get().timestamp();

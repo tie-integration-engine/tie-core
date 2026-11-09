@@ -60,6 +60,8 @@ class SchemaCoherenceTest {
                 Arguments.of("wrong enum value", base.replace("direction: IMPORT", "direction: SIDEWAYS")),
                 Arguments.of("date typeFormat mixed with a decimal one", base.replace("- name: nif",
                         "- name: nif\n        typeFormat: { pattern: dd/MM/yyyy, decimalSeparator: \",\" }")),
+                Arguments.of("firstArray as a string", base.replace("xlsx: { sheet: Altas }",
+                        "xlsx: { sheet: Altas }\n      json: { firstArray: \"yes\" }")),
                 Arguments.of("unknown cellValues", base.replace("xlsx: { sheet: Altas }", "xlsx: { sheet: Altas, cellValues: RAW }")),
                 Arguments.of("unknown defaultMode", base.replace("- name: nif", "- name: nif\n        defaultMode: RAW")),
                 Arguments.of("unknown copyMode", base.replace("- name: nif", "- name: nif\n        copyMode: RAW")),

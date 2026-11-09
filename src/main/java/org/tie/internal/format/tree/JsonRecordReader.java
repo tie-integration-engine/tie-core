@@ -24,8 +24,8 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Records of a JSON file: the elements of the root array, or of the array under
- * {@code recordProperty}. The file is streamed; each record is materialized with its children
+ * Records of a JSON file: the elements of the root array, of the array under {@code recordProperty}, or, with
+ * {@code firstArray} and a root object, of its first top-level property that is an array. The file is streamed; each record is materialized with its children
  * (INV-13 applies to the file, not to one record). Nested objects are flattened with dotted paths
  * (AC-39); an array must be a declared nested layout (AC-161).
  */
@@ -41,6 +41,7 @@ public final class JsonRecordReader implements RecordReader {
 
     private final JsonParser parser;
     private final String recordProperty;
+    private final boolean firstArray;
     private final Layout root;
     private final TreeLayouts layouts;
     private boolean started;
@@ -55,6 +56,7 @@ public final class JsonRecordReader implements RecordReader {
             throw failure(e);
         }
         this.recordProperty = options.recordProperty();
+        this.firstArray = options.firstArray();
     }
 
     @Override
@@ -85,10 +87,14 @@ public final class JsonRecordReader implements RecordReader {
     private void openRecordsArray() {
         JsonToken token = parser.nextToken();
         if (recordProperty == null) {
-            if (token != JsonToken.START_ARRAY) {
-                throw FileFailure.structural("expected a JSON array of records at the root" + location(), null);
+            if (token == JsonToken.START_ARRAY) {
+                return;
             }
-            return;
+            if (firstArray && token == JsonToken.START_OBJECT) {
+                openFirstArray();
+                return;
+            }
+            throw FileFailure.structural("expected a JSON array of records at the root" + location(), null);
         }
         if (token != JsonToken.START_OBJECT) {
             throw FileFailure.structural("expected a JSON object with property '" + recordProperty + "'" + location(), null);
@@ -106,6 +112,17 @@ public final class JsonRecordReader implements RecordReader {
             parser.skipChildren();
         }
         throw FileFailure.structural("property '" + recordProperty + "' not found", null);
+    }
+
+    /** Moves to the first top-level property of the root object whose value is an array; the others are skipped. */
+    private void openFirstArray() {
+        while (parser.nextToken() == JsonToken.PROPERTY_NAME) {
+            if (parser.nextToken() == JsonToken.START_ARRAY) {
+                return;
+            }
+            parser.skipChildren();
+        }
+        throw FileFailure.structural("expected an array property in the root JSON object", null);
     }
 
     private ReadRecord record(JsonNode node, Layout layout) {

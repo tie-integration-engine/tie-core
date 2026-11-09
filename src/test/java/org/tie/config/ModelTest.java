@@ -106,6 +106,16 @@ class ModelTest {
     }
 
     @Test
+    @DisplayName("AC-273 the JSON builder defaults are DEFAULTS and the 0.3.0 values; toBuilder keeps every option")
+    void jsonOptionsBuilder() {
+        JsonOptions full = JsonOptions.builder().recordProperty("rows").encoding(StandardCharsets.UTF_16).firstArray(true).build();
+
+        assertThat(JsonOptions.builder().build()).isEqualTo(JsonOptions.DEFAULTS)
+                .isEqualTo(new JsonOptions(null, StandardCharsets.UTF_8, false));
+        assertThat(full.toBuilder().build()).isEqualTo(full);
+    }
+
+    @Test
     @DisplayName("AC-251 the XLSX builder defaults are DEFAULTS and the 0.2.0 values; toBuilder keeps every option")
     void xlsxOptionsBuilder() {
         XlsxOptions full = XlsxOptions.builder().sheet("S").hasHeader(false).firstDataRow(4).skipBlankRecords(true)

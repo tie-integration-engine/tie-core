@@ -374,4 +374,47 @@ class ImportSelectionTest {
         assertThatThrownBy(() -> h.tie.build().importFiles(h.altas().build(), null))
                 .isInstanceOf(ConfigurationException.class);
     }
+
+    /** The usual alta layout without fileNamePattern, fed only by provided inputs. */
+    private org.tie.config.IntegrationDefinition.Builder providedOnly(String pattern) {
+        return h.importOf(csv("alta", pattern)).inputChannels(List.of(ProvidedStreamChannel.INSTANCE));
+    }
+
+    @Test
+    @DisplayName("AC-274 a root layout without fileNamePattern is valid and imports when every input channel is provided")
+    void providedOnlyWithoutPattern() {
+        org.tie.config.IntegrationDefinition definition = providedOnly(null).build();
+        h.context.providedInput("alta", "p.csv", new ByteArrayInputStream("value\nv1\nv2\n".getBytes(StandardCharsets.UTF_8)));
+
+        assertThat(org.tie.internal.validation.DefinitionValidator.validate(definition)).isEmpty();
+        ImportResult result = h.tie.build().importFiles(definition, h.context.build());
+
+        assertThat(result.status()).isEqualTo(ResultStatus.SUCCESS);
+        assertThat(result.files()).extracting(FileResult::status).containsExactly(FileStatus.SUCCESS);
+        assertThat(h.records).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("AC-276 a declared pattern is still checked with only provided inputs: a missing variable fails")
+    void providedOnlyPatternVariables() {
+        h.context.providedInput("alta", "p.csv", new ByteArrayInputStream("value\nv1\n".getBytes(StandardCharsets.UTF_8)));
+
+        assertThatThrownBy(() -> h.run(providedOnly("alta_{tenant}")))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessageContaining("variable 'tenant' of fileNamePattern is not in the context");
+    }
+
+    @Test
+    @DisplayName("AC-277 with only provided inputs, no pattern and watermark, the import works and no mark moves")
+    void providedOnlyWithWatermark() {
+        org.tie.config.IntegrationDefinition definition = providedOnly(null)
+                .duplicateProtection(new DuplicateProtection(true, org.tie.config.PostSuccessAction.NONE)).build();
+        h.context.providedInput("alta", "p.csv", new ByteArrayInputStream("value\nv1\n".getBytes(StandardCharsets.UTF_8)));
+
+        assertThat(org.tie.internal.validation.DefinitionValidator.validate(definition)).isEmpty();
+        ImportResult result = h.tie.build().importFiles(definition, h.context.build());
+
+        assertThat(result.status()).isEqualTo(ResultStatus.SUCCESS);
+        assertThat(result.watermarks()).isEmpty();
+    }
 }

@@ -27,7 +27,9 @@ import org.tie.config.FieldDefinition;
 import org.tie.config.FieldType;
 import org.tie.config.FileFormat;
 import org.tie.config.IntegrationDefinition;
+import org.tie.config.JsonOptions;
 import org.tie.config.Layout;
+import org.tie.config.LocalDirectoryChannel;
 import org.tie.config.OnEmpty;
 import org.tie.config.OutputAs;
 import org.tie.config.PostSuccessAction;
@@ -271,6 +273,47 @@ class DefinitionValidatorTest {
         }
 
         @Test
+        @DisplayName("AC-275 fileNamePattern stays required when any input channel lists files")
+        void patternRequiredWithListingChannels() {
+            Layout.Builder noPattern = csvLayout("alta").fileNamePattern(null);
+
+            assertThat(problems(importWith(noPattern))).containsExactly("layout 'alta': fileNamePattern is required");
+            assertThat(problems(importWith(noPattern).inputChannels(List.of(LocalDirectoryChannel.of(java.nio.file.Path.of("/in")),
+                    ProvidedStreamChannel.INSTANCE)))).containsExactly("layout 'alta': fileNamePattern is required");
+            assertThat(problems(importWith(noPattern).inputChannels(List.of(ProvidedStreamChannel.INSTANCE)))).isEmpty();
+        }
+
+        @Test
+        @DisplayName("AC-276 with only provided inputs a declared pattern is still validated")
+        void declaredPatternValidatedWithProvidedInputs() {
+            assertThat(problems(importWith(csvLayout("alta").fileNamePattern("alta_{timestamp:"))
+                    .inputChannels(List.of(ProvidedStreamChannel.INSTANCE))))
+                    .singleElement().asString().startsWith("layout 'alta': fileNamePattern");
+        }
+
+        @Test
+        @DisplayName("AC-272 recordProperty and firstArray cannot be combined on import")
+        void recordPropertyWithFirstArray() {
+            Layout.Builder layout = csvLayout("alta").allowedFormats(FileFormat.JSON)
+                    .json(JsonOptions.builder().recordProperty("x").firstArray(true).build());
+
+            assertThat(problems(importWith(layout)))
+                    .containsExactly("layout 'alta': json recordProperty and firstArray cannot be combined");
+        }
+
+        @Test
+        @DisplayName("AC-265 recordElement is required to export XML, not to import it")
+        void recordElementOnlyRequiredForExport() {
+            Layout.Builder export = Layout.builder("out").allowedFormats(FileFormat.XML);
+
+            assertThat(problems(validExport().layouts(List.of(export.build()))))
+                    .contains("layout 'out': xml recordElement is required");
+            assertThat(problems(importWith(csvLayout("alta").allowedFormats(FileFormat.XML)))).isEmpty();
+            assertThat(problems(importWith(csvLayout("alta").allowedFormats(FileFormat.XML).xml(XmlOptions.of(" ")))))
+                    .containsExactly("layout 'alta': xml recordElement must not be blank");
+        }
+
+        @Test
         void formatOptionsAreCheckedForAllowedFormats() {
             Layout.Builder layout = csvLayout("alta")
                     .allowedFormats(FileFormat.CSV, FileFormat.XLSX, FileFormat.XML)
@@ -280,8 +323,7 @@ class DefinitionValidatorTest {
             assertThat(problems(importWith(layout))).containsExactly(
                     "layout 'alta': csv: firstDataRow must be at least 1",
                     "layout 'alta': csv separator and quote must be different",
-                    "layout 'alta': xlsx sheet must not be blank",
-                    "layout 'alta': xml recordElement is required");
+                    "layout 'alta': xlsx sheet must not be blank");
             assertThat(problems(importWith(csvLayout("alta").allowedFormats(FileFormat.XML)
                     .xml(XmlOptions.of("record"))))).isEmpty();
         }

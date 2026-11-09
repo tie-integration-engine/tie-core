@@ -281,6 +281,21 @@ class ExportTest {
     }
 
     @Test
+    @DisplayName("AC-272 firstArray is ignored on export, also with recordProperty")
+    void firstArrayIgnoredOnExport() throws IOException {
+        Map<String, Object> record = record("n", 42L);
+        FieldDefinition.Builder n = FieldDefinition.builder("n").type(FieldType.INTEGER);
+
+        run(export(layout(FileFormat.JSON, n).json(org.tie.config.JsonOptions.builder().recordProperty("rows").build())), record);
+        String plain = written("json");
+        Files.delete(out.resolve(NAME + ".json"));
+        run(export(layout(FileFormat.JSON, n).json(org.tie.config.JsonOptions.builder().recordProperty("rows")
+                .firstArray(true).build())), record);
+
+        assertThat(written("json")).isEqualTo(plain);
+    }
+
+    @Test
     @DisplayName("AC-253 the XLSX reading options are ignored on export")
     void xlsxReadingOptionsIgnoredOnExport() throws IOException {
         Map<String, Object> record = record("n", 42L, "day", LocalDate.of(2026, 12, 31), "t", " ");
