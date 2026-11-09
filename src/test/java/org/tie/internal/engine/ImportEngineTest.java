@@ -35,6 +35,7 @@ import org.tie.config.Translation;
 import org.tie.config.TranslationDirection;
 import org.tie.config.TypeFormat;
 import org.tie.config.Validations;
+import org.tie.fixtures.MapExpressionEngine;
 import org.tie.spi.DefaultValueResolver;
 import org.tie.spi.FieldTransformer;
 
@@ -617,6 +618,110 @@ class ImportEngineTest {
                 assertThat(error.code().argumentNames()).containsAll(error.args().keySet());
                 assertThat(error.message()).isEqualTo(error.code().message(error.args())).doesNotContain("{");
             }
+        }
+    }
+
+    @Nested
+    class FieldExpressions {
+
+        private final MapExpressionEngine expressions = new MapExpressionEngine();
+        private final Expressions.Scope scope = new Expressions.Scope(LocalDate.of(2026, 11, 9), Map.of(), Direction.IMPORT);
+
+        private LineResult run(Map<String, String> line, FieldDefinition.Builder... fields) {
+            Layout.Builder layout = Layout.builder("l");
+            for (FieldDefinition.Builder field : fields) {
+                layout.field(field);
+            }
+            return new ImportEngine(layout.build(), transformers, resolver, expressions).process(LineInput.of(line), scope, null);
+        }
+
+        @Test
+        @DisplayName("AC-293 a computed field joins two read fields")
+        void joinFields() {
+            expressions.define("full", c -> c.record().get("nombre") + " " + c.record().get("apellido"));
+
+            FieldValues values = accepted(run(line("nombre", "Ana", "apellido", "Pérez"), FieldDefinition.builder("nombre"),
+                    FieldDefinition.builder("apellido"), FieldDefinition.builder("completo").inInput(false).expression("full")));
+
+            assertThat(values.get("completo")).isEqualTo("Ana Pérez");
+        }
+
+        @Test
+        @DisplayName("AC-294 a String result is converted like a value read: typeFormat, then canonical")
+        void stringResultConverted() {
+            expressions.define("dmy", c -> "31/12/2026").define("iso", c -> "2026-12-31").define("bad", c -> "x");
+            FieldDefinition.Builder date = FieldDefinition.builder("f").inInput(false).type(FieldType.DATE)
+                    .typeFormat(TypeFormat.date("dd/MM/yyyy"));
+
+            assertThat(accepted(run(line(), date.expression("dmy"))).get("f")).isEqualTo(LocalDate.of(2026, 12, 31));
+            assertThat(accepted(run(line(), date.expression("iso"))).get("f")).isEqualTo(LocalDate.of(2026, 12, 31));
+            LineError error = rejected(run(line(), date.expression("bad"))).getFirst();
+            assertThat(error.code()).isEqualTo(ErrorCode.INVALID_TYPE);
+            assertThat(error.args()).containsEntry("value", "x");
+        }
+
+        @Test
+        @DisplayName("AC-295 the field's validations apply to the result")
+        void validationsOnResult() {
+            expressions.define("long", c -> "abcd");
+
+            LineError error = rejected(run(line(), FieldDefinition.builder("s").inInput(false).expression("long")
+                    .validations(Validations.maxLength(3)))).getFirst();
+
+            assertThat(error.code()).isEqualTo(ErrorCode.TOO_LONG);
+            assertThat(error.args()).containsEntry("value", "abcd");
+        }
+
+        @Test
+        @DisplayName("AC-296 a result of another type or an exception is EXPRESSION_FAILED")
+        void expressionFailed() {
+            expressions.define("bool", c -> true).define("div", c -> 1 / Integer.parseInt("0"));
+            FieldDefinition.Builder number = FieldDefinition.builder("n").inInput(false).type(FieldType.INTEGER);
+
+            LineError bool = rejected(run(line(), number.expression("bool"))).getFirst();
+            LineError div = rejected(run(line(), number.expression("div"))).getFirst();
+
+            assertThat(bool.code()).isEqualTo(ErrorCode.EXPRESSION_FAILED);
+            assertThat(bool.args().get("exceptionMessage")).contains("unsupported result type Boolean");
+            assertThat(div.code()).isEqualTo(ErrorCode.EXPRESSION_FAILED);
+            assertThat(div.args().get("exceptionMessage")).contains("/ by zero");
+        }
+
+        @Test
+        @DisplayName("AC-297 expressions run in declaration order and see the results of the earlier ones")
+        void declarationOrder() {
+            expressions.define("double", c -> (Long) c.value() * 2).define("plusOne", c -> (Long) c.record().get("A") + 1);
+
+            FieldValues values = accepted(run(line("A", "5"),
+                    FieldDefinition.builder("A").type(FieldType.INTEGER).expression("double"),
+                    FieldDefinition.builder("B").inInput(false).type(FieldType.INTEGER).expression("plusOne")));
+
+            assertThat(values.get("A")).isEqualTo(10L);
+            assertThat(values.get("B")).isEqualTo(11L);
+        }
+
+        @Test
+        @DisplayName("AC-298 a line with errors in pass 1 is rejected without evaluating any expression")
+        void noEvaluationAfterErrors() {
+            expressions.define("calc", c -> "v");
+
+            List<LineError> errors = rejected(run(line("x", "nope"), FieldDefinition.builder("x").type(FieldType.INTEGER),
+                    FieldDefinition.builder("y").inInput(false).expression("calc")));
+
+            assertThat(errors).extracting(LineError::code).containsExactly(ErrorCode.INVALID_TYPE);
+            assertThat(expressions.evaluations).hasValue(0);
+        }
+
+        @Test
+        @DisplayName("AC-299 a KEEP field whose expression gives null is absent; with a value it is present")
+        void keepField() {
+            expressions.define("none", c -> null).define("v", c -> "v");
+
+            FieldValues none = accepted(run(line("k", ""), FieldDefinition.builder("k").onEmpty(OnEmpty.KEEP).expression("none")));
+            FieldValues some = accepted(run(line("k", ""), FieldDefinition.builder("k").onEmpty(OnEmpty.KEEP).expression("v")));
+
+            assertThat(none.has("k")).isFalse();
+            assertThat(some.get("k")).isEqualTo("v");
         }
     }
 

@@ -219,6 +219,7 @@ public final class DefinitionMapper {
                 .onEmpty(node.enumValue("onEmpty", OnEmpty.class))
                 .defaultValue(node.string("defaultValue"))
                 .defaultMode(node.enumValue("defaultMode", DefaultMode.class))
+                .expression(node.string("expression"))
                 .outputAs(node.enumValue("outputAs", OutputAs.class));
         List<TextTransform> transforms = node.list("textTransforms", this::textTransform);
         if (transforms != null) {

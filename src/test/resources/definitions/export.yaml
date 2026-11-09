@@ -1,7 +1,7 @@
 version: 1
 id: out
 direction: EXPORT
-outputChannel: { type: SFTP, host: h, username: u, password: p, remoteDirectory: /out, insecureAcceptAnyHostKey: true, onExistingFile: OVERWRITE }
+outputChannel: { type: SFTP, host: h, username: u, password: "${secret:out}", remoteDirectory: /out, insecureAcceptAnyHostKey: true, onExistingFile: OVERWRITE }
 outputNamePattern: out_{timestamp:yyyyMMddHHmmss}
 rejectionThreshold: { maxRejected: 0 }
 layouts:

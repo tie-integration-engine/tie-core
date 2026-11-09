@@ -37,6 +37,7 @@ import org.tie.internal.channel.ChannelException;
 import org.tie.internal.delivery.Delivered;
 import org.tie.internal.delivery.OutputChannel;
 import org.tie.internal.engine.ExportEngine;
+import org.tie.internal.engine.Expressions;
 import org.tie.internal.engine.Values;
 import org.tie.internal.format.write.OutputRecord;
 import org.tie.internal.format.write.RecordWriter;
@@ -46,6 +47,8 @@ import org.tie.internal.pattern.NamePatternException;
 import org.tie.internal.validation.DefinitionValidator;
 import org.tie.internal.validation.SpiValidator;
 import org.tie.spi.DefaultValueResolver;
+import org.tie.spi.ExpressionContext;
+import org.tie.spi.ExpressionEngine;
 import org.tie.spi.FieldTransformer;
 import org.tie.spi.RunListener;
 import org.tie.spi.SecretProvider;
@@ -66,6 +69,8 @@ public final class ExportRun {
     private final ExportContext context;
     private final Map<String, FieldTransformer> transformers;
     private final DefaultValueResolver resolver;
+    private final ExpressionEngine expressionEngine;
+    private Expressions.Scope scope;
     private final SecretProvider secrets;
     private final Clock clock;
     private final Path workingDirectory;
@@ -79,13 +84,14 @@ public final class ExportRun {
 
     public ExportRun(IntegrationDefinition definition, Iterator<Map<String, Object>> records, ExportContext context,
                      Map<String, FieldTransformer> transformers, DefaultValueResolver resolver,
-                     SecretProvider secrets, Clock clock,
+                     ExpressionEngine expressionEngine, SecretProvider secrets, Clock clock,
                      Path defaultWorkingDirectory) {
         this.definition = definition;
         this.records = records;
         this.context = context;
         this.transformers = transformers;
         this.resolver = resolver;
+        this.expressionEngine = expressionEngine;
         this.secrets = secrets;
         this.clock = clock;
         this.workingDirectory = context == null || context.workingDirectory() == null ? defaultWorkingDirectory
@@ -97,7 +103,9 @@ public final class ExportRun {
         validate();
         Layout root = definition.layouts().stream().filter(Layout::isRoot).findFirst().orElseThrow();
         FileFormat format = root.allowedFormats().iterator().next();
-        definition.layouts().forEach(layout -> engines.put(layout.name(), new ExportEngine(layout, transformers, resolver)));
+        definition.layouts().forEach(layout -> engines.put(layout.name(),
+                new ExportEngine(layout, transformers, resolver, expressionEngine)));
+        scope = Expressions.Scope.of(clock, context.variables(), Direction.EXPORT);
         fileName = NamePattern.parse(definition.outputNamePattern())
                 .render(context.variables(), LocalDateTime.now(clock)) + "." + format.extension();
         Path temporary = null;
@@ -109,7 +117,7 @@ public final class ExportRun {
                         LOG.info("export {}: cancelled", definition.id());
                         return result(ResultStatus.CANCELLED, null, null);
                     }
-                    OutputRecord record = record(records.next(), root, null);
+                    OutputRecord record = record(records.next(), root, null, null);
                     if (record != null) {
                         writer.write(record);
                     }
@@ -145,16 +153,18 @@ public final class ExportRun {
     }
 
     /** Runs a record and its children through the engines; null if the record is rejected (A11). */
-    private OutputRecord record(Map<String, Object> values, Layout layout, Integer parentLine) {
+    private OutputRecord record(Map<String, Object> values, Layout layout, Integer parentLine,
+                                ExpressionContext parent) {
         int lineNumber = ++line;
         if (values == null) {
             throw new ExportFailure(FileError.of(FileErrorType.STRUCTURAL, "record " + lineNumber + " is null"));
         }
-        ExportEngine.Result result = engines.get(layout.name()).process(values);
+        ExportEngine.Result result = engines.get(layout.name()).process(values, scope, parent);
         if (result instanceof ExportEngine.Rejected(List<LineError> errors)) {
             reject(values, layout, lineNumber, parentLine, errors);
             return null;
         }
+        ExpressionContext self = Expressions.parentOf(((ExportEngine.Written) result).evaluated(), layout, parent, scope);
         List<OutputRecord.Children> children = new ArrayList<>();
         for (Layout child : definition.layouts()) {
             if (!layout.name().equals(child.parent())) {
@@ -169,7 +179,7 @@ public final class ExportRun {
                     }
                     @SuppressWarnings("unchecked")
                     Map<String, Object> childValues = (Map<String, Object>) element;
-                    OutputRecord childRecord = record(childValues, child, lineNumber);
+                    OutputRecord childRecord = record(childValues, child, lineNumber, self);
                     if (childRecord != null) {
                         childRecords.add(childRecord);
                     }
@@ -239,7 +249,7 @@ public final class ExportRun {
             throw new ConfigurationException("definition is required");
         }
         List<String> problems = new ArrayList<>(DefinitionValidator.validate(definition));
-        problems.addAll(SpiValidator.validate(definition, transformers.keySet(), secrets != null));
+        problems.addAll(SpiValidator.validate(definition, transformers.keySet(), secrets != null, expressionEngine));
         if (definition.direction() != null && definition.direction() != Direction.EXPORT) {
             problems.add("exportRecords requires an EXPORT definition");
         }

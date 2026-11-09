@@ -21,6 +21,7 @@ import org.tie.internal.run.ImportRun;
 import org.tie.internal.validation.DefinitionValidator;
 import org.tie.internal.validation.SpiValidator;
 import org.tie.spi.DefaultValueResolver;
+import org.tie.spi.ExpressionEngine;
 import org.tie.spi.FieldTransformer;
 import org.tie.spi.SecretProvider;
 
@@ -30,14 +31,17 @@ public final class DefaultTie implements Tie {
     private final Map<String, FieldTransformer> transformers;
     private final DefaultValueResolver defaultValueResolver;
     private final SecretProvider secretProvider;
+    private final ExpressionEngine expressionEngine;
     private final Clock clock;
     private final Path workingDirectory;
 
     public DefaultTie(Map<String, FieldTransformer> transformers, DefaultValueResolver defaultValueResolver,
-                      SecretProvider secretProvider, Clock clock, Path workingDirectory) {
+                      SecretProvider secretProvider, ExpressionEngine expressionEngine, Clock clock,
+                      Path workingDirectory) {
         this.transformers = Map.copyOf(transformers);
         this.defaultValueResolver = defaultValueResolver;
         this.secretProvider = secretProvider;
+        this.expressionEngine = expressionEngine;
         this.clock = clock;
         this.workingDirectory = workingDirectory != null ? workingDirectory
                 : Path.of(System.getProperty("java.io.tmpdir"));
@@ -47,21 +51,22 @@ public final class DefaultTie implements Tie {
     public List<String> validate(IntegrationDefinition definition) {
         List<String> problems = new ArrayList<>(DefinitionValidator.validate(definition));
         if (definition != null) {
-            problems.addAll(SpiValidator.validate(definition, transformers.keySet(), secretProvider != null));
+            problems.addAll(SpiValidator.validate(definition, transformers.keySet(), secretProvider != null, expressionEngine));
         }
         return List.copyOf(problems);
     }
 
     @Override
     public ImportResult importFiles(IntegrationDefinition definition, ImportContext context) {
-        return new ImportRun(definition, context, transformers, defaultValueResolver, secretProvider, clock,
+        return new ImportRun(definition, context, transformers, defaultValueResolver, expressionEngine, secretProvider, clock,
                 workingDirectory).run();
     }
 
     @Override
     public ExportResult exportRecords(IntegrationDefinition definition, Iterator<Map<String, Object>> records,
                                       ExportContext context) {
-        return new ExportRun(definition, records, context, transformers, defaultValueResolver, secretProvider, clock,
+        return new ExportRun(definition, records, context, transformers, defaultValueResolver, expressionEngine, secretProvider,
+                clock,
                 workingDirectory).run();
     }
 

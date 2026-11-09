@@ -36,6 +36,7 @@ import org.tie.config.ReportMode;
 import org.tie.config.ResultReport;
 import org.tie.internal.delivery.Delivered;
 import org.tie.internal.delivery.OutputChannel;
+import org.tie.internal.engine.Expressions;
 import org.tie.internal.report.ReportBuffer;
 import org.tie.internal.report.ReportLine;
 import org.tie.internal.report.ReportWriter;
@@ -66,6 +67,7 @@ import org.tie.internal.pattern.NamePatternException;
 import org.tie.internal.validation.DefinitionValidator;
 import org.tie.internal.validation.SpiValidator;
 import org.tie.spi.DefaultValueResolver;
+import org.tie.spi.ExpressionEngine;
 import org.tie.spi.FieldTransformer;
 import org.tie.spi.RunListener;
 import org.tie.spi.SecretProvider;
@@ -87,6 +89,8 @@ public final class ImportRun {
     private final ImportContext context;
     private final Map<String, FieldTransformer> transformers;
     private final DefaultValueResolver resolver;
+    private final ExpressionEngine expressionEngine;
+    private Expressions.Scope scope;
     private final SecretProvider secrets;
     private final Clock clock;
     private final Path workingDirectory;
@@ -96,12 +100,13 @@ public final class ImportRun {
     private Map<String, ImportEngine> engines;
 
     public ImportRun(IntegrationDefinition definition, ImportContext context, Map<String, FieldTransformer> transformers,
-                     DefaultValueResolver resolver, SecretProvider secrets, Clock clock,
-                     Path defaultWorkingDirectory) {
+                     DefaultValueResolver resolver, ExpressionEngine expressionEngine, SecretProvider secrets,
+                     Clock clock, Path defaultWorkingDirectory) {
         this.definition = definition;
         this.context = context;
         this.transformers = transformers;
         this.resolver = resolver;
+        this.expressionEngine = expressionEngine;
         this.secrets = secrets;
         this.clock = clock;
         this.workingDirectory = context == null || context.workingDirectory() == null ? defaultWorkingDirectory
@@ -118,8 +123,9 @@ public final class ImportRun {
         }
         engines = new LinkedHashMap<>();
         for (Layout layout : definition.layouts()) {
-            engines.put(layout.name(), new ImportEngine(layout, transformers, resolver));
+            engines.put(layout.name(), new ImportEngine(layout, transformers, resolver, expressionEngine));
         }
+        scope = Expressions.Scope.of(clock, context.variables(), Direction.IMPORT);
         Map<String, LocalDateTime> watermarks = new LinkedHashMap<>(context.watermarks());
         List<InputChannel> channels = new ArrayList<>();
         try {
@@ -164,7 +170,7 @@ public final class ImportRun {
             throw new ConfigurationException("definition is required");
         }
         List<String> problems = new ArrayList<>(DefinitionValidator.validate(definition));
-        problems.addAll(SpiValidator.validate(definition, transformers.keySet(), secrets != null));
+        problems.addAll(SpiValidator.validate(definition, transformers.keySet(), secrets != null, expressionEngine));
         if (definition.direction() != null && definition.direction() != Direction.IMPORT) {
             problems.add("importFiles requires an IMPORT definition");
         }
@@ -393,10 +399,10 @@ public final class ImportRun {
             }
             if (validateFirst) {
                 try (RecordReader reader = reader(format, file)) {
-                    RecordDelivery.validate(reader, layout, engines, definition.rejectionThreshold());
+                    RecordDelivery.validate(reader, layout, engines, definition.rejectionThreshold(), scope);
                 }
             }
-            delivery = new RecordDelivery(engines, context.consumer(), definition.consumerErrorPolicy(),
+            delivery = new RecordDelivery(engines, scope, context.consumer(), definition.consumerErrorPolicy(),
                     definition.rejectionThreshold().maxRejected(), context.cancellation(), candidate.name(),
                     this::rejected, this::applied);
             try (RecordReader reader = file != null ? reader(format, file)

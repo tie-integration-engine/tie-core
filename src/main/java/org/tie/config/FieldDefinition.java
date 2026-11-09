@@ -29,6 +29,7 @@ public record FieldDefinition(
         OnEmpty onEmpty,
         String defaultValue,
         DefaultMode defaultMode,
+        String expression,
         OutputAs outputAs) {
 
     public FieldDefinition {
@@ -71,7 +72,7 @@ public record FieldDefinition(
         return new Builder().name(name).column(column).inInput(inInput).optional(optional).copyFrom(copyFrom)
                 .copyMode(copyMode).textTransforms(textTransforms).translations(translations).onUnmatched(onUnmatched)
                 .transformer(transformer).type(type).typeFormat(typeFormat).validations(validations)
-                .onEmpty(onEmpty).defaultValue(defaultValue).defaultMode(defaultMode).outputAs(outputAs);
+                .onEmpty(onEmpty).defaultValue(defaultValue).defaultMode(defaultMode).expression(expression).outputAs(outputAs);
     }
 
     public static final class Builder {
@@ -91,6 +92,7 @@ public record FieldDefinition(
         private OnEmpty onEmpty;
         private String defaultValue;
         private DefaultMode defaultMode;
+        private String expression;
         private OutputAs outputAs;
 
         private Builder() {
@@ -192,6 +194,12 @@ public record FieldDefinition(
             return this;
         }
 
+        /** The source of an expression that computes the field's final value (§4.3 «Expresiones»). */
+        public Builder expression(String expression) {
+            this.expression = expression;
+            return this;
+        }
+
         public Builder outputAs(OutputAs outputAs) {
             this.outputAs = outputAs;
             return this;
@@ -199,7 +207,7 @@ public record FieldDefinition(
 
         public FieldDefinition build() {
             return new FieldDefinition(name, column, inInput, optional, copyFrom, copyMode, textTransforms, translations,
-                    onUnmatched, transformer, type, typeFormat, validations, onEmpty, defaultValue, defaultMode, outputAs);
+                    onUnmatched, transformer, type, typeFormat, validations, onEmpty, defaultValue, defaultMode, expression, outputAs);
         }
     }
 }

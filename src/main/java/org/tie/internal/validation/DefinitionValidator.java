@@ -296,6 +296,10 @@ public final class DefinitionValidator {
         if (field.copyFrom() != null && !byName.containsKey(key(field.copyFrom()))) {
             problem(label + ": copyFrom '" + field.copyFrom() + "' does not exist");
         }
+        if (field.copyFrom() != null && byName.containsKey(key(field.copyFrom()))
+                && byName.get(key(field.copyFrom())).expression() != null) {
+            problem(label + ": copyFrom '" + field.copyFrom() + "' has an expression; copy it with an expression instead");
+        }
         if (field.copyMode() != null && field.copyFrom() == null) {
             problem(label + ": copyMode requires copyFrom");
         }
@@ -630,8 +634,13 @@ public final class DefinitionValidator {
     private void secret(String label, String property, String value) {
         if (SecretReference.isMalformed(value)) {
             problem(label + ": " + property + " has a malformed secret reference (expected ${secret:name})");
+        } else if (MASKED.equals(value)) {
+            problem(label + ": " + property + " is masked (" + MASKED + "): set the real value or a ${secret:name} reference");
         }
     }
+
+    /** What DefinitionWriter writes instead of a literal credential (§5.5). */
+    public static final String MASKED = "***";
 
     private void maxFileSize(String label, Long maxFileSize) {
         if (maxFileSize != null && maxFileSize < 1) {
