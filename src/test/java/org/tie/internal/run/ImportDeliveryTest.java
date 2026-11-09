@@ -76,10 +76,7 @@ class ImportDeliveryTest {
                 .fields(List.of(FieldDefinition.builder("value").type(FieldType.INTEGER).build())));
     }
 
-    @Nested
-    class Thresholds {
-
-        private static FieldDefinition.Builder computed(String name, String expression) {
+    private static FieldDefinition.Builder computed(String name, String expression) {
         return FieldDefinition.builder(name).inInput(false).expression(expression);
     }
 
@@ -205,7 +202,10 @@ class ImportDeliveryTest {
         assertThatThrownBy(() -> record.get("fecha", java.time.LocalDate.class)).isInstanceOf(ClassCastException.class);
     }
 
-    @Test
+    @Nested
+    class Thresholds {
+
+        @Test
         @DisplayName("AC-66 the file fails when rejections exceed maxRejected")
         void maxRejected() {
             writeNumbers("alta_20261026120000.csv", 5, 2);
