@@ -296,6 +296,10 @@ public final class DefinitionValidator {
         if (field.copyFrom() != null && !byName.containsKey(key(field.copyFrom()))) {
             problem(label + ": copyFrom '" + field.copyFrom() + "' does not exist");
         }
+        if (field.copyFrom() != null && byName.containsKey(key(field.copyFrom()))
+                && byName.get(key(field.copyFrom())).expression() != null) {
+            problem(label + ": copyFrom '" + field.copyFrom() + "' has an expression; copy it with an expression instead");
+        }
         if (field.copyMode() != null && field.copyFrom() == null) {
             problem(label + ": copyMode requires copyFrom");
         }

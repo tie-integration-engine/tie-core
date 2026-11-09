@@ -1,5 +1,6 @@
 package org.tie.internal.engine;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -21,12 +22,16 @@ import org.tie.config.Direction;
 import org.tie.config.FieldDefinition;
 import org.tie.config.FieldType;
 import org.tie.config.Layout;
+import org.tie.config.OnEmpty;
 import org.tie.config.OnUnmatched;
 import org.tie.config.Translation;
 import org.tie.config.TranslationDirection;
 import org.tie.config.Validations;
 import org.tie.internal.Exceptions;
+import org.tie.spi.CompiledExpression;
 import org.tie.spi.DefaultValueResolver;
+import org.tie.spi.ExpressionContext;
+import org.tie.spi.ExpressionEngine;
 import org.tie.spi.FieldTransformer;
 
 /**
@@ -44,6 +49,9 @@ import org.tie.spi.FieldTransformer;
  * <p>A step that fails stops that field; the other fields are still computed so that the line reports
  * all its errors at once (AC-64). The custom transformer is only called with non-empty values.
  *
+ * <p>Fields with an {@code expression} are evaluated in a second pass, in declaration order, once the
+ * first pass has no errors; the result replaces the field's value (§4.3 «Expresiones»).
+ *
  * <p>Instances are immutable and thread-safe; build one per layout.
  */
 public final class ImportEngine {
@@ -53,14 +61,22 @@ public final class ImportEngine {
     private final List<String> declaredNames;
     private final Map<String, Integer> declaredIndex;
     private final DefaultValueResolver defaultValueResolver;
+    /** Compiled expressions by field name, in declaration order. */
+    private final Map<String, CompiledExpression> expressions;
 
-    /**
-     * @throws IllegalStateException if a field names a transformer that is not in {@code transformers}
-     *                               (a validated configuration never does)
-     */
     public ImportEngine(Layout layout, Map<String, FieldTransformer> transformers,
                         DefaultValueResolver defaultValueResolver) {
+        this(layout, transformers, defaultValueResolver, null);
+    }
+
+    /**
+     * @throws IllegalStateException if a field names a transformer that is not in {@code transformers}, or has
+     *                               an expression without an engine (a validated configuration never does)
+     */
+    public ImportEngine(Layout layout, Map<String, FieldTransformer> transformers,
+                        DefaultValueResolver defaultValueResolver, ExpressionEngine expressionEngine) {
         this.defaultValueResolver = defaultValueResolver;
+        this.expressions = Expressions.compile(layout, expressionEngine);
         Map<String, FieldPlan> byKey = new LinkedHashMap<>();
         List<String> names = new ArrayList<>();
         Map<String, Integer> indexes = new HashMap<>();
@@ -82,7 +98,18 @@ public final class ImportEngine {
         this.declaredIndex = Map.copyOf(indexes);
     }
 
+    /** Processes a root line with today's date and no context variables. */
     public LineResult process(LineInput input) {
+        return process(input, new Expressions.Scope(LocalDate.now(), Map.of(), Direction.IMPORT), null);
+    }
+
+    /**
+     * Processes one line.
+     *
+     * @param scope  today, the context variables and the direction for the expressions
+     * @param parent the parent record of a nested line, or null (also when the parent was rejected)
+     */
+    public LineResult process(LineInput input, Expressions.Scope scope, ExpressionContext parent) {
         if (order.isEmpty()) {
             return passThrough(input);
         }
@@ -117,12 +144,76 @@ public final class ImportEngine {
             }
         }
 
+        if (errors.isEmpty() && !expressions.isEmpty()) {
+            evaluate(values, soFar, kept, errors, scope, parent);
+        }
         if (!errors.isEmpty()) {
             errors.sort(Comparator.comparingInt(error -> declaredIndex.getOrDefault(error.field(), Integer.MAX_VALUE)));
             return new LineResult.Rejected(errors, input.rawValues());
         }
         kept.forEach(values::remove);
         return new LineResult.Accepted(FieldValues.frozen(values, declaredNames, input.rawValues()));
+    }
+
+    /** Pass 2: every expression in declaration order; its result replaces the field's value (§4.3). */
+    private void evaluate(Map<String, Object> values, FieldValues soFar, Set<String> kept, List<LineError> errors,
+                          Expressions.Scope scope, ExpressionContext parent) {
+        for (Map.Entry<String, CompiledExpression> entry : expressions.entrySet()) {
+            String name = entry.getKey();
+            FieldPlan plan = byKey.get(key(name));
+            Object result;
+            try {
+                result = entry.getValue().evaluate(Expressions.context(values.get(name), soFar, parent, scope));
+            } catch (RuntimeException e) {
+                errors.add(LineError.of(name, ErrorCode.EXPRESSION_FAILED, "exceptionMessage", exceptionMessage(e)));
+                continue;
+            }
+            Outcome outcome = expressionResult(plan, result);
+            if (!outcome.errors().isEmpty()) {
+                errors.addAll(outcome.errors());
+            } else if (outcome.value() == null && plan.field().onEmpty() == OnEmpty.KEEP) {
+                values.remove(name);
+                kept.add(name);
+            } else {
+                kept.remove(name);
+                values.put(name, outcome.value());
+            }
+        }
+    }
+
+    /**
+     * The value of an expression's result: null or "" is empty; a String is converted like a value read
+     * (typeFormat, then the canonical form); another value must be of the field's type. The validations
+     * apply to the canonical text of a non-empty result.
+     */
+    private static Outcome expressionResult(FieldPlan plan, Object result) {
+        FieldDefinition field = plan.field();
+        if (result == null || result instanceof String text && text.isEmpty()) {
+            return Outcome.value(null, null);
+        }
+        Object typed;
+        if (result instanceof String text) {
+            if (field.type() == FieldType.STRING) {
+                typed = text;
+            } else {
+                Optional<Object> converted = plan.converter().convert(text, TypeConverter.Order.FORMAT_THEN_CANONICAL);
+                if (converted.isEmpty()) {
+                    return Outcome.error(invalidType(plan, text));
+                }
+                typed = converted.get();
+            }
+        } else {
+            Optional<Object> coerced = field.type() == FieldType.STRING ? Optional.empty() : Values.coerce(result, field.type());
+            if (coerced.isEmpty()) {
+                return Outcome.error(LineError.of(field.name(), ErrorCode.EXPRESSION_FAILED, "exceptionMessage",
+                        "unsupported result type " + result.getClass().getSimpleName() + " for a " + field.type()
+                                + " field"));
+            }
+            typed = coerced.get();
+        }
+        String text = Values.canonical(typed);
+        List<LineError> validationErrors = validate(plan, text);
+        return validationErrors.isEmpty() ? Outcome.value(typed, text) : new Outcome(null, text, typed, false, validationErrors);
     }
 
     /** A layout without fields delivers the values as read, as STRING; empty text is an empty value (AC-40). */

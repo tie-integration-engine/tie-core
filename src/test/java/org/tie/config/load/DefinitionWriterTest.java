@@ -281,6 +281,19 @@ class DefinitionWriterTest {
     }
 
     @Test
+    @DisplayName("AC-310 an expression loads from YAML and is written as is")
+    void expressionLoadedAndWritten() {
+        String source = "value != null ? value : (tie:age(fechaNacimiento) < 16 ? parent.documento : null)";
+        IntegrationDefinition definition = Definitions.validImport().layouts(List.of(Definitions.csvLayout("alta")
+                .fields(List.of(FieldDefinition.builder("documento").expression(source).build())).build())).build();
+
+        String yaml = DefinitionWriter.toYaml(definition);
+
+        assertThat(DefinitionLoader.fromYaml(yaml).layouts().getFirst().fields().getFirst().expression()).isEqualTo(source);
+        assertRoundTrip(definition);
+    }
+
+    @Test
     @DisplayName("AC-313 an invalid definition is not written: ConfigurationException with every problem")
     void invalidDefinition() {
         IntegrationDefinition invalid = Definitions.validImport().layouts(List.of(Layout.builder(null)

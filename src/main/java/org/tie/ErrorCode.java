@@ -18,6 +18,7 @@ public enum ErrorCode {
     DEFAULT_UNRESOLVABLE("default value has placeholders and no resolver is registered", "template"),
     DEFAULT_RESOLVER_FAILED("default value resolver failed: {exceptionMessage}", "template", "exceptionMessage"),
     TRANSFORMER_FAILED("transformer '{transformer}' failed: {exceptionMessage}", "transformer", "exceptionMessage"),
+    EXPRESSION_FAILED("expression failed: {exceptionMessage}", "exceptionMessage"),
     PARENT_REJECTED("parent rejected", "parentLineNumber"),
     CONSUMER_REJECTED("{reason}", "reason"),
     CONSUMER_FAILED("{exceptionMessage}", "exceptionMessage");

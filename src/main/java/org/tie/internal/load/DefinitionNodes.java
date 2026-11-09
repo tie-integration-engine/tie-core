@@ -240,6 +240,7 @@ public final class DefinitionNodes {
         if (field.defaultMode() != null) {
             node.put("defaultMode", field.defaultMode().name());
         }
+        putIfNotNull(node, "expression", field.expression());
         if (field.outputAs() != null) {
             node.put("outputAs", field.outputAs().name());
         }

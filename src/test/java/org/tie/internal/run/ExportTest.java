@@ -58,6 +58,7 @@ import org.tie.config.Translation;
 import org.tie.config.TranslationDirection;
 import org.tie.config.TypeFormat;
 import org.tie.config.XmlOptions;
+import org.tie.fixtures.MapExpressionEngine;
 import org.tie.spi.Outcome;
 
 class ExportTest {
@@ -238,6 +239,46 @@ class ExportTest {
                 record("n", 42L, "t", 42, "d", new BigDecimal("1.50"), "b", true, "day", LocalDate.of(2026, 12, 31)));
 
         assertThat(written("json")).isEqualTo("[{\"n\":42,\"t\":\"42\",\"d\":1.50,\"b\":true,\"day\":\"2026-12-31\"}]");
+    }
+
+    @Test
+    @DisplayName("AC-307 an export expression computes a field from the supplied values")
+    void exportExpression() throws IOException {
+        tie.expressionEngine(new MapExpressionEngine().define("estado",
+                c -> ((BigDecimal) c.record().get("importe")).compareTo(BigDecimal.valueOf(1000)) > 0 ? "ALTO" : "NORMAL"));
+
+        run(export(layout(FileFormat.CSV, FieldDefinition.builder("importe").type(FieldType.DECIMAL),
+                        FieldDefinition.builder("estado").expression("estado"))),
+                record("importe", new BigDecimal("500")), record("importe", new BigDecimal("2000")));
+
+        assertThat(written("csv")).isEqualTo("importe;estado\r\n500;NORMAL\r\n2000;ALTO\r\n".replace(';', ','));
+    }
+
+    @Test
+    @DisplayName("AC-308 a nested exported record's expression sees its parent")
+    void exportParent() throws IOException {
+        tie.expressionEngine(new MapExpressionEngine().define("parentId", c -> c.parent().record().get("id")));
+        Map<String, Object> order = record("id", 7L, "lines", List.of(record("sku", "A")));
+
+        run(export(layout(FileFormat.JSON, FieldDefinition.builder("id").type(FieldType.INTEGER)),
+                Layout.builder("line").parent("out", "lines").field(FieldDefinition.builder("sku"))
+                        .field(FieldDefinition.builder("order").type(FieldType.INTEGER).expression("parentId"))), order);
+
+        assertThat(written("json")).isEqualTo("[{\"id\":7,\"lines\":[{\"sku\":\"A\",\"order\":7}]}]");
+    }
+
+    @Test
+    @DisplayName("AC-306 without expressions an engine changes nothing on export")
+    void exportEngineWithoutExpressions() throws IOException {
+        Map<String, Object> values = record("a", "x");
+        run(export(layout(FileFormat.CSV, FieldDefinition.builder("a"))), values);
+        String plain = written("csv");
+        Files.delete(out.resolve(NAME + ".csv"));
+        tie.expressionEngine(new MapExpressionEngine());
+
+        run(export(layout(FileFormat.CSV, FieldDefinition.builder("a"))), values);
+
+        assertThat(written("csv")).isEqualTo(plain);
     }
 
     @Test

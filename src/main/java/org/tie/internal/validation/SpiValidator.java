@@ -8,7 +8,9 @@ import org.tie.config.FieldDefinition;
 import org.tie.config.IntegrationDefinition;
 import org.tie.config.Layout;
 import org.tie.config.SftpChannel;
+import org.tie.internal.Exceptions;
 import org.tie.internal.secret.SecretReference;
+import org.tie.spi.ExpressionEngine;
 
 /**
  * Checks that the SPIs a definition needs are registered (§5.3). A {@code defaultValue} with
@@ -20,7 +22,7 @@ public final class SpiValidator {
     }
 
     public static List<String> validate(IntegrationDefinition definition, Set<String> transformers,
-                                        boolean hasSecretProvider) {
+                                        boolean hasSecretProvider, ExpressionEngine expressionEngine) {
         List<String> problems = new ArrayList<>();
         List<Layout> layouts = definition.layouts();
         for (int i = 0; i < layouts.size(); i++) {
@@ -32,6 +34,8 @@ public final class SpiValidator {
                     problems.add(Labels.field(layoutLabel, fields.get(j), j) + ": transformer '" + transformer
                             + "' is not registered");
                 }
+                expression(Labels.field(layoutLabel, fields.get(j), j), fields.get(j).expression(), expressionEngine,
+                        problems);
             }
         }
         if (!hasSecretProvider) {
@@ -43,6 +47,22 @@ public final class SpiValidator {
             secrets("resultReport.channel", definition.resultReport().channel(), problems);
         }
         return problems;
+    }
+
+    /** An expression needs an engine, and must compile with it (§5.3). */
+    private static void expression(String label, String source, ExpressionEngine engine, List<String> problems) {
+        if (source == null) {
+            return;
+        }
+        if (engine == null) {
+            problems.add(label + ": expression requires an ExpressionEngine");
+            return;
+        }
+        try {
+            engine.compile(source);
+        } catch (RuntimeException e) {
+            problems.add(label + ": expression does not compile: " + Exceptions.message(e));
+        }
     }
 
     /** Secret references of one channel without a SecretProvider, for {@code deliverFile}. */

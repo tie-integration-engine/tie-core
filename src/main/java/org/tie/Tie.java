@@ -11,6 +11,7 @@ import org.tie.config.ChannelDefinition;
 import org.tie.config.IntegrationDefinition;
 import org.tie.internal.DefaultTie;
 import org.tie.spi.DefaultValueResolver;
+import org.tie.spi.ExpressionEngine;
 import org.tie.spi.FieldTransformer;
 import org.tie.spi.SecretProvider;
 
@@ -70,6 +71,7 @@ public interface Tie {
         private final Map<String, FieldTransformer> transformers = new LinkedHashMap<>();
         private DefaultValueResolver defaultValueResolver;
         private SecretProvider secretProvider;
+        private ExpressionEngine expressionEngine;
         private Clock clock = Clock.systemDefaultZone();
         private Path workingDirectory;
 
@@ -97,6 +99,12 @@ public interface Tie {
             return this;
         }
 
+        /** The engine that compiles field expressions (§5.3); required only if some field has one. */
+        public Builder expressionEngine(ExpressionEngine expressionEngine) {
+            this.expressionEngine = expressionEngine;
+            return this;
+        }
+
         public Builder secretProvider(SecretProvider secretProvider) {
             this.secretProvider = secretProvider;
             return this;
@@ -118,7 +126,7 @@ public interface Tie {
         }
 
         public Tie build() {
-            return new DefaultTie(Map.copyOf(transformers), defaultValueResolver, secretProvider, clock,
+            return new DefaultTie(Map.copyOf(transformers), defaultValueResolver, secretProvider, expressionEngine, clock,
                     workingDirectory);
         }
     }

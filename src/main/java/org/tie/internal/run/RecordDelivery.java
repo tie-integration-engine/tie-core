@@ -15,6 +15,7 @@ import org.tie.config.Layout;
 import org.tie.config.OnParentRejected;
 import org.tie.config.RejectionThreshold;
 import org.tie.internal.Exceptions;
+import org.tie.internal.engine.Expressions;
 import org.tie.internal.engine.FieldValues;
 import org.tie.internal.engine.ImportEngine;
 import org.tie.internal.engine.LineResult;
@@ -22,6 +23,7 @@ import org.tie.internal.format.FileFailure;
 import org.tie.internal.format.NestedRecords;
 import org.tie.internal.format.ReadRecord;
 import org.tie.internal.format.RecordReader;
+import org.tie.spi.ExpressionContext;
 import org.tie.spi.Outcome;
 import org.tie.spi.RecordConsumer;
 
@@ -43,6 +45,7 @@ final class RecordDelivery {
     }
 
     private final Map<String, ImportEngine> engines;
+    private final Expressions.Scope scope;
     private final RecordConsumer consumer;
     private final ConsumerErrorPolicy errorPolicy;
     private final Integer maxRejected;
@@ -63,10 +66,12 @@ final class RecordDelivery {
     private int rejected;
     private int deliveredUpToLine;
 
-    RecordDelivery(Map<String, ImportEngine> engines, RecordConsumer consumer, ConsumerErrorPolicy errorPolicy,
+    RecordDelivery(Map<String, ImportEngine> engines, Expressions.Scope scope, RecordConsumer consumer,
+                   ConsumerErrorPolicy errorPolicy,
                    Integer maxRejected, CancellationToken cancellation, String fileName,
                    Consumer<LineRejection> rejections, AppliedLines appliedLines) {
         this.engines = engines;
+        this.scope = scope;
         this.consumer = consumer;
         this.errorPolicy = errorPolicy;
         this.maxRejected = maxRejected;
@@ -110,35 +115,40 @@ final class RecordDelivery {
             if (cancellation != null && cancellation.isCancellationRequested()) {
                 throw new Cancelled();
             }
-            process(record, root, null, false);
+            process(record, root, null, false, null);
         }
     }
 
-    private void process(ReadRecord record, Layout layout, Integer parentLine, boolean parentRejected) {
+    /**
+     * @param parent the expression context of the parent record, null for a root record or a rejected parent
+     */
+    private void process(ReadRecord record, Layout layout, Integer parentLine, boolean parentRejected,
+                         ExpressionContext parent) {
         int lineNumber = ++line;
         linesRead++;
-        boolean rejectedLine;
+        ExpressionContext self;
         if (parentRejected && layout.onParentRejected() == OnParentRejected.CASCADE) {
             reject(record, layout, lineNumber, parentLine, List.of(LineError.of(null, ErrorCode.PARENT_REJECTED,
                     "parentLineNumber", String.valueOf(parentLine))));
-            rejectedLine = true;
+            self = null;
         } else {
-            rejectedLine = engineAndConsumer(record, layout, lineNumber, parentLine);
+            self = engineAndConsumer(record, layout, lineNumber, parentLine, parent);
         }
         deliveredUpToLine = lineNumber;
         for (NestedRecords nested : record.children()) {
             for (ReadRecord child : nested.records()) {
-                process(child, nested.layout(), lineNumber, rejectedLine);
+                process(child, nested.layout(), lineNumber, self == null, self);
             }
         }
     }
 
-    /** @return whether the line was rejected */
-    private boolean engineAndConsumer(ReadRecord record, Layout layout, int lineNumber, Integer parentLine) {
-        LineResult result = engines.get(layout.name()).process(record.input());
+    /** @return the expression context of the line for its children, or null if the line was rejected */
+    private ExpressionContext engineAndConsumer(ReadRecord record, Layout layout, int lineNumber, Integer parentLine,
+                                                ExpressionContext parent) {
+        LineResult result = engines.get(layout.name()).process(record.input(), scope, parent);
         if (result instanceof LineResult.Rejected(List<LineError> errors, Map<String, String> ignored)) {
             reject(record, layout, lineNumber, parentLine, errors);
-            return true;
+            return null;
         }
         FieldValues values = ((LineResult.Accepted) result).values();
         Map<String, Boolean> declared = new LinkedHashMap<>();
@@ -161,16 +171,16 @@ final class RecordDelivery {
             }
             reject(record, layout, lineNumber, parentLine,
                     List.of(LineError.of(null, ErrorCode.CONSUMER_FAILED, "exceptionMessage", message)));
-            return true;
+            return null;
         }
         if (outcome instanceof Outcome.Rejected(String reason)) {
             reject(record, layout, lineNumber, parentLine,
                     List.of(LineError.of(null, ErrorCode.CONSUMER_REJECTED, "reason", reason)));
-            return true;
+            return null;
         }
         applied++;
         appliedLines.applied(layout.name(), lineNumber, record.input().rawValues());
-        return false;
+        return Expressions.parentOf(values, parent, scope);
     }
 
     private void reject(ReadRecord record, Layout layout, int lineNumber, Integer parentLine, List<LineError> errors) {
@@ -192,11 +202,11 @@ final class RecordDelivery {
      * fails the file before any delivery (A6, A7).
      */
     static void validate(RecordReader reader, Layout root, Map<String, ImportEngine> engines,
-                         RejectionThreshold threshold) {
+                         RejectionThreshold threshold, Expressions.Scope scope) {
         int[] counts = new int[2];
         ReadRecord record;
         while ((record = reader.next()) != null) {
-            count(record, root, engines, counts, false);
+            count(record, root, engines, counts, false, null, scope);
         }
         BigDecimal percent = threshold.maxRejectedPercent();
         int total = counts[0];
@@ -212,16 +222,22 @@ final class RecordDelivery {
 
     /** Counts lines and engine rejections; children cascaded from a rejected parent are not engine rejections. */
     private static void count(ReadRecord record, Layout layout, Map<String, ImportEngine> engines, int[] counts,
-                              boolean parentRejected) {
+                              boolean parentRejected, ExpressionContext parent, Expressions.Scope scope) {
         counts[0]++;
+        ExpressionContext self = null;
         boolean rejected = parentRejected && layout.onParentRejected() == OnParentRejected.CASCADE;
-        if (!rejected && engines.get(layout.name()).process(record.input()) instanceof LineResult.Rejected) {
-            counts[1]++;
-            rejected = true;
+        if (!rejected) {
+            LineResult result = engines.get(layout.name()).process(record.input(), scope, parent);
+            if (result instanceof LineResult.Accepted(FieldValues values)) {
+                self = Expressions.parentOf(values, parent, scope);
+            } else {
+                counts[1]++;
+                rejected = true;
+            }
         }
         for (NestedRecords nested : record.children()) {
             for (ReadRecord child : nested.records()) {
-                count(child, nested.layout(), engines, counts, rejected);
+                count(child, nested.layout(), engines, counts, rejected, self, scope);
             }
         }
     }

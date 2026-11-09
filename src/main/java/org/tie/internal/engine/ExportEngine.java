@@ -1,5 +1,6 @@
 package org.tie.internal.engine;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -19,7 +20,10 @@ import org.tie.config.OutputAs;
 import org.tie.config.Translation;
 import org.tie.config.Validations;
 import org.tie.internal.Exceptions;
+import org.tie.spi.CompiledExpression;
 import org.tie.spi.DefaultValueResolver;
+import org.tie.spi.ExpressionContext;
+import org.tie.spi.ExpressionEngine;
 import org.tie.spi.FieldTransformer;
 
 /**
@@ -37,8 +41,11 @@ public final class ExportEngine {
     public sealed interface Result {
     }
 
-    /** Values per field name in declaration order: a String (TEXT), a typed value (NATIVE) or null. */
-    public record Written(Map<String, Object> values) implements Result {
+    /**
+     * Values per field name in declaration order: a String (TEXT), a typed value (NATIVE) or null.
+     * {@code evaluated} is the record after the expressions, which nested records see as {@code parent}.
+     */
+    public record Written(Map<String, Object> values, Map<String, Object> evaluated) implements Result {
     }
 
     public record Rejected(List<LineError> errors) implements Result {
@@ -51,9 +58,19 @@ public final class ExportEngine {
     private final List<String> declared;
     private final Map<String, Integer> declaredIndex = new HashMap<>();
     private final DefaultValueResolver resolver;
+    /** Compiled expressions by field name, in declaration order. */
+    private final Map<String, CompiledExpression> expressions;
+    private final Map<String, FieldDefinition> fieldsByName = new HashMap<>();
 
     public ExportEngine(Layout layout, Map<String, FieldTransformer> transformers, DefaultValueResolver resolver) {
+        this(layout, transformers, resolver, null);
+    }
+
+    public ExportEngine(Layout layout, Map<String, FieldTransformer> transformers, DefaultValueResolver resolver,
+                        ExpressionEngine expressionEngine) {
         this.resolver = resolver;
+        this.expressions = Expressions.compile(layout, expressionEngine);
+        layout.fields().forEach(field -> fieldsByName.put(field.name(), field));
         List<String> names = new ArrayList<>();
         Map<String, Plan> byKey = new LinkedHashMap<>();
         for (FieldDefinition field : layout.fields()) {
@@ -69,14 +86,35 @@ public final class ExportEngine {
         this.order = FieldOrder.of(layout.fields()).stream().map(f -> byKey.get(FieldOrder.key(f.name()))).toList();
     }
 
+    /** Processes a root record with today's date and no context variables. */
     public Result process(Map<String, Object> record) {
+        return process(record, new Expressions.Scope(LocalDate.now(), Map.of(), Direction.EXPORT), null);
+    }
+
+    /**
+     * Processes one record: first its expressions over the supplied values (§4.4), then the steps of §4.4.
+     *
+     * @param parent the parent record of a nested record, or null
+     */
+    public Result process(Map<String, Object> supplied, Expressions.Scope scope, ExpressionContext parent) {
+        Map<String, Object> record = supplied;
+        if (!expressions.isEmpty()) {
+            Map<String, Object> working = new LinkedHashMap<>(supplied);
+            List<LineError> errors = evaluate(working, scope, parent);
+            if (!errors.isEmpty()) {
+                errors.sort(Comparator.comparingInt(error -> declaredIndex.getOrDefault(error.field(), Integer.MAX_VALUE)));
+                return new Rejected(errors);
+            }
+            record = working;
+        }
         Map<String, Object> values = new HashMap<>();
         Map<String, Object> soFar = new LinkedHashMap<>();
         FieldValues view = new FieldValues(Collections.unmodifiableMap(soFar), Map.of());
         List<LineError> errors = new ArrayList<>();
         for (Plan plan : order) {
             FieldDefinition field = plan.field();
-            Object input = record.get(field.copyFrom() != null ? sourceName(field.copyFrom()) : field.name());
+            Object input = record.get(field.copyFrom() != null && field.expression() == null
+                    ? sourceName(field.copyFrom()) : field.name());
             Object value;
             try {
                 value = compute(plan, input, view);
@@ -93,7 +131,40 @@ public final class ExportEngine {
         }
         Map<String, Object> ordered = new LinkedHashMap<>();
         declared.forEach(name -> ordered.put(name, values.get(name)));
-        return new Written(Collections.unmodifiableMap(ordered));
+        return new Written(Collections.unmodifiableMap(ordered), Collections.unmodifiableMap(record));
+    }
+
+    /**
+     * The expressions over the supplied values, in declaration order: each sees its field's supplied value (or
+     * its copy source's) and the record with the results so far; its result replaces the field's value. A
+     * String is accepted as is (step 1 reads text); another value must be representable as the field's type.
+     */
+    private List<LineError> evaluate(Map<String, Object> working, Expressions.Scope scope, ExpressionContext parent) {
+        List<LineError> errors = new ArrayList<>();
+        FieldValues view = new FieldValues(Collections.unmodifiableMap(working), Map.of());
+        for (Map.Entry<String, CompiledExpression> entry : expressions.entrySet()) {
+            FieldDefinition field = fieldsByName.get(entry.getKey());
+            Object current = working.get(field.copyFrom() != null ? sourceName(field.copyFrom()) : field.name());
+            Object result;
+            try {
+                result = entry.getValue().evaluate(Expressions.context(current, view, parent, scope));
+            } catch (RuntimeException e) {
+                errors.add(LineError.of(field.name(), ErrorCode.EXPRESSION_FAILED, "exceptionMessage",
+                        Exceptions.message(e)));
+                continue;
+            }
+            if (result instanceof String text && text.isEmpty()) {
+                result = null;
+            }
+            if (result != null && !(result instanceof String) && Values.coerce(result, field.type()).isEmpty()) {
+                errors.add(LineError.of(field.name(), ErrorCode.EXPRESSION_FAILED, "exceptionMessage",
+                        "unsupported result type " + result.getClass().getSimpleName() + " for a " + field.type()
+                                + " field"));
+                continue;
+            }
+            working.put(field.name(), result);
+        }
+        return errors;
     }
 
     /** The key of the copy source in the record: the declared name of the source field. */

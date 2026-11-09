@@ -42,6 +42,7 @@ import org.tie.config.OnParentRejected;
 import org.tie.config.RejectionThreshold;
 import org.tie.config.TypeFormat;
 import org.tie.config.Validations;
+import org.tie.fixtures.MapExpressionEngine;
 import org.tie.spi.Outcome;
 
 class ImportDeliveryTest {
@@ -78,7 +79,97 @@ class ImportDeliveryTest {
     @Nested
     class Thresholds {
 
-        @Test
+        private static FieldDefinition.Builder computed(String name, String expression) {
+        return FieldDefinition.builder(name).inInput(false).expression(expression);
+    }
+
+    @Test
+    @DisplayName("AC-300 an expression's today comes from the clock of Tie, so runs are repeatable")
+    void todayFromTheClock() {
+        h.tie.expressionEngine(new MapExpressionEngine().define("today", c -> c.today().toString()));
+        h.writeLines("alta_20261026120000.csv", 1);
+        h.writeLines("alta_20261027120000.csv", 1);
+
+        h.run(h.importOf(ImportHarness.csv("alta", "alta_{timestamp:yyyyMMddHHmmss}").field(computed("hoy", "today"))));
+
+        assertThat(h.records).extracting(record -> record.get("hoy")).containsExactly("2026-11-07", "2026-11-07");
+    }
+
+    @Test
+    @DisplayName("AC-301 an expression sees the context variables")
+    void contextVariables() {
+        h.tie.expressionEngine(new MapExpressionEngine().define("tenant", c -> c.variables().get("tenant")));
+        h.context.variable("tenant", "A");
+        h.writeLines("alta_20261026120000.csv", 1);
+
+        h.run(h.importOf(ImportHarness.csv("alta", "alta_{timestamp:yyyyMMddHHmmss}").field(computed("t", "tenant"))));
+
+        assertThat(h.records).extracting(record -> record.get("t")).containsExactly("A");
+    }
+
+    @Test
+    @DisplayName("AC-305 an expression needs an engine, and must compile with it")
+    void expressionNeedsAnEngine() {
+        org.tie.config.IntegrationDefinition definition = h.importOf(ImportHarness.csv("alta", "alta_{timestamp:yyyyMMddHHmmss}")
+                .field(computed("c", "x"))).build();
+
+        assertThat(org.tie.Tie.builder().build().validate(definition))
+                .singleElement().asString().endsWith("field 'c': expression requires an ExpressionEngine");
+        assertThat(org.tie.Tie.builder().expressionEngine(new MapExpressionEngine()).build().validate(definition))
+                .singleElement().asString().contains("field 'c': expression does not compile: unknown expression 'x'");
+    }
+
+    @Test
+    @DisplayName("AC-306 without expressions an engine changes nothing")
+    void engineWithoutExpressions() {
+        h.writeLines("alta_20261026120000.csv", 3);
+        h.run(h.altas());
+        List<String> without = h.records.stream().map(r -> r.lineNumber() + "=" + r.get("value")).toList();
+        h.records.clear();
+        h.tie.expressionEngine(new MapExpressionEngine());
+
+        h.run(h.altas());
+
+        assertThat(h.records.stream().map(r -> r.lineNumber() + "=" + r.get("value")).toList()).isEqualTo(without).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("AC-309 a grandchild's expression sees its grandparent through parent.parent")
+    void grandparent() {
+        h.tie.expressionEngine(new MapExpressionEngine().define("abuelo", c -> c.parent().parent().record().get("codigo")));
+        h.write("orders_20261026.json", """
+                [{"codigo": "G1", "hijos": [{"n": "1", "nietos": [{"m": "a"}]}]}]
+                """);
+
+        h.run(h.importOf(Layout.builder("order").fileNamePattern("orders_{timestamp:yyyyMMdd}").allowedFormats(FileFormat.JSON)
+                        .field(FieldDefinition.builder("codigo")),
+                Layout.builder("hijo").parent("order", "hijos").field(FieldDefinition.builder("n")),
+                Layout.builder("nieto").parent("hijo", "nietos").field(FieldDefinition.builder("m"))
+                        .field(computed("codigoAbuelo", "abuelo"))));
+
+        assertThat(h.records.getLast().layout()).isEqualTo("nieto");
+        assertThat(h.records.getLast().get("codigoAbuelo")).isEqualTo("G1");
+    }
+
+    @Test
+    @DisplayName("AC-316 with onParentRejected PROCESS, a child of a rejected parent sees parent as null")
+    void rejectedParentIsNull() {
+        h.tie.expressionEngine(new MapExpressionEngine().define("parentId",
+                c -> c.parent() == null ? "SIN" : String.valueOf(c.parent().record().get("id"))));
+        h.write("orders_20261026.json", """
+                [{"id": "x", "hijos": [{"n": "1"}]}, {"id": "2", "hijos": [{"n": "2"}]}]
+                """);
+
+        h.run(h.importOf(Layout.builder("order").fileNamePattern("orders_{timestamp:yyyyMMdd}").allowedFormats(FileFormat.JSON)
+                        .field(FieldDefinition.builder("id").type(FieldType.INTEGER)),
+                Layout.builder("hijo").parent("order", "hijos").onParentRejected(OnParentRejected.PROCESS)
+                        .field(FieldDefinition.builder("n")).field(computed("padre", "parentId"))));
+
+        assertThat(h.records).filteredOn(record -> record.layout().equals("hijo"))
+                .extracting(record -> record.get("padre")).containsExactly("SIN", "2");
+    }
+
+    @Test
     @DisplayName("AC-249 a skipped blank XLSX row does not use a line number")
     void skippedXlsxRowKeepsLineNumbers() throws IOException {
         Path file = h.in.resolve("alta_20261026120000.xlsx");
@@ -568,6 +659,13 @@ class ImportDeliveryTest {
             h.writeLines("alta_20261026120000.csv", 1);
             h.run(h.importOf(csv("alta", "alta_{timestamp:yyyyMMddHHmmss}")
                     .field(FieldDefinition.builder("code").inInput(false).defaultValue("${x}"))));
+            h.tie = org.tie.Tie.builder().expressionEngine(new org.tie.fixtures.MapExpressionEngine()
+                    .define("boom", context -> {
+                        throw new IllegalStateException("e");
+                    }));
+            h.writeLines("alta_20261027120000.csv", 1);
+            h.run(h.importOf(csv("alta", "alta_{timestamp:yyyyMMddHHmmss}")
+                    .field(FieldDefinition.builder("calc").inInput(false).expression("boom"))));
 
             Map<ErrorCode, Set<String>> expected = new HashMap<>();
             expected.put(ErrorCode.NO_TRANSLATION, Set.of("value"));
@@ -580,6 +678,7 @@ class ImportDeliveryTest {
             expected.put(ErrorCode.DEFAULT_UNRESOLVABLE, Set.of("template"));
             expected.put(ErrorCode.DEFAULT_RESOLVER_FAILED, Set.of("template", "exceptionMessage"));
             expected.put(ErrorCode.TRANSFORMER_FAILED, Set.of("transformer", "exceptionMessage"));
+            expected.put(ErrorCode.EXPRESSION_FAILED, Set.of("exceptionMessage"));
             expected.put(ErrorCode.PARENT_REJECTED, Set.of("parentLineNumber"));
             expected.put(ErrorCode.CONSUMER_REJECTED, Set.of("reason"));
             expected.put(ErrorCode.CONSUMER_FAILED, Set.of("exceptionMessage"));
