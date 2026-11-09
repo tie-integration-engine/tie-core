@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 import org.tie.ErrorCode;
 import org.tie.LineError;
 import org.tie.config.CopyMode;
+import org.tie.config.DefaultMode;
 import org.tie.config.Direction;
 import org.tie.config.FieldDefinition;
 import org.tie.config.FieldType;
@@ -32,7 +33,8 @@ import org.tie.spi.FieldTransformer;
  * The import field engine (§4.3): a pure function from the values read for one line to typed
  * values or every field error. Fields are computed in topological order of their copies (INV-6),
  * each through the steps 1 read, 2 copy, 3 trim, 4 text transforms, 5 translate (IN and BOTH rows),
- * 6 custom transformer, 7 convert to the type, 8 validations and 9 resolve empty; at the end of the
+ * 6 custom transformer, 7 convert to the type, 8 validations and 9 resolve empty (with {@code defaultMode TEXT}
+ * the default value is validated but not converted, and delivered as a String); at the end of the
  * line, 10 drops the KEEP fields.
  *
  * <p>Step 2 copies the source's text ({@code copyMode TEXT}) or the canonical text of its typed value
@@ -200,6 +202,11 @@ public final class ImportEngine {
                 resolved = emptyToNull(resolved);
                 if (resolved == null) {
                     yield Outcome.value(null, null);
+                }
+                if (field.effectiveDefaultMode() == DefaultMode.TEXT) {
+                    List<LineError> validationErrors = validate(plan, resolved);
+                    yield validationErrors.isEmpty() ? Outcome.value(resolved, resolved)
+                            : new Outcome(null, resolved, resolved, false, validationErrors);
                 }
                 Optional<Object> typed = plan.converter().convert(resolved, canonicalFallback);
                 yield typed.isPresent() ? Outcome.value(typed.get(), resolved) : Outcome.error(invalidType(plan, resolved));

@@ -20,6 +20,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.tie.config.ColumnLocation;
 import org.tie.config.CopyMode;
 import org.tie.config.CsvOptions;
+import org.tie.config.DefaultMode;
 import org.tie.config.DeliveryStrategy;
 import org.tie.config.DuplicateProtection;
 import org.tie.config.FieldDefinition;
@@ -153,6 +154,14 @@ class DefinitionValidatorTest {
 
             assertThat(problems(definition))
                     .containsExactly("layout 'out': nested layouts are only supported in JSON and XML exports");
+        }
+
+        @Test
+        @DisplayName("AC-237 defaultMode requires defaultValue")
+        void defaultModeWithoutDefaultValue() {
+            Layout.Builder layout = csvLayout("alta").field(FieldDefinition.builder("fecha").defaultMode(DefaultMode.TEXT));
+
+            assertThat(problems(importWith(layout))).containsExactly("layout 'alta', field 'fecha': defaultMode requires defaultValue");
         }
 
         @Test

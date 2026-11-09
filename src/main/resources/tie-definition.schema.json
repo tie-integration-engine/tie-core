@@ -144,6 +144,7 @@
         },
         "onEmpty": { "enum": ["EMPTY", "KEEP", "ERROR", "DEFAULT"] },
         "defaultValue": { "type": "string" },
+        "defaultMode": { "enum": ["CONVERT", "TEXT"] },
         "outputAs": { "enum": ["NATIVE", "TEXT"] }
       }
     },

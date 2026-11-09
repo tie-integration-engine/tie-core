@@ -299,6 +299,9 @@ public final class DefinitionValidator {
         } else if (field.onEmpty() != OnEmpty.DEFAULT && field.defaultValue() != null) {
             problem(label + ": defaultValue only applies with onEmpty DEFAULT");
         }
+        if (field.defaultMode() != null && field.defaultValue() == null) {
+            problem(label + ": defaultMode requires defaultValue");
+        }
         if (field.outputAs() == OutputAs.NATIVE && field.hasTextualExportSteps()) {
             problem(label + ": outputAs NATIVE cannot be combined with typeFormat, textTransforms, translations"
                     + " or transformer");

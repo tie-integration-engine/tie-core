@@ -58,6 +58,7 @@ class SchemaCoherenceTest {
                 Arguments.of("unknown field property", base.replace("- name: nif", "- name: nif\n        colum: A")),
                 Arguments.of("unknown channel property", base.replace("timeout: PT30S", "timeout: PT30S\n    colour: x")),
                 Arguments.of("wrong enum value", base.replace("direction: IMPORT", "direction: SIDEWAYS")),
+                Arguments.of("unknown defaultMode", base.replace("- name: nif", "- name: nif\n        defaultMode: RAW")),
                 Arguments.of("unknown copyMode", base.replace("- name: nif", "- name: nif\n        copyMode: RAW")),
                 Arguments.of("unsupported version", base.replace("version: 1", "version: 2")),
                 Arguments.of("missing version", base.replace("version: 1\n", "")),

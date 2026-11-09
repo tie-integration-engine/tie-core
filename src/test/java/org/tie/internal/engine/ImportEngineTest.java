@@ -23,6 +23,7 @@ import org.tie.ErrorCode;
 import org.tie.LineError;
 import org.tie.RecordView;
 import org.tie.config.CopyMode;
+import org.tie.config.DefaultMode;
 import org.tie.config.Direction;
 import org.tie.config.FieldDefinition;
 import org.tie.config.FieldType;
@@ -616,6 +617,95 @@ class ImportEngineTest {
                 assertThat(error.code().argumentNames()).containsAll(error.args().keySet());
                 assertThat(error.message()).isEqualTo(error.code().message(error.args())).doesNotContain("{");
             }
+        }
+    }
+
+    @Nested
+    class DefaultModes {
+
+        private static final TypeFormat DMY = TypeFormat.date("dd/MM/yyyy");
+
+        private FieldDefinition.Builder date(String name, String defaultValue) {
+            return FieldDefinition.builder(name).type(FieldType.DATE).typeFormat(DMY).defaultValue(defaultValue);
+        }
+
+        @Test
+        @DisplayName("AC-229 defaultMode TEXT delivers an unresolved template in a DATE field as text")
+        void unresolvedTemplate() {
+            resolver = (template, record) -> template;
+
+            assertThat(value(date("fecha", "${fechaProceso}").defaultMode(DefaultMode.TEXT), ""))
+                    .isEqualTo("${fechaProceso}");
+        }
+
+        @Test
+        @DisplayName("AC-230 without defaultMode, or with CONVERT, the same template is INVALID_TYPE")
+        void convertIsUnchanged() {
+            resolver = (template, record) -> template;
+
+            for (FieldDefinition.Builder field : List.of(date("fecha", "${fechaProceso}"),
+                    date("fecha", "${fechaProceso}").defaultMode(DefaultMode.CONVERT))) {
+                LineError error = error(field, "");
+                assertThat(error.code()).isEqualTo(ErrorCode.INVALID_TYPE);
+                assertThat(error.args()).containsEntry("value", "${fechaProceso}");
+            }
+        }
+
+        @Test
+        @DisplayName("AC-231 a literal default is the text with TEXT and a LocalDate without defaultMode")
+        void literal() {
+            assertThat(value(date("fecha", "01/01/2026").defaultMode(DefaultMode.TEXT), "")).isEqualTo("01/01/2026");
+            assertThat(value(date("fecha", "01/01/2026"), "")).isEqualTo(LocalDate.of(2026, 1, 1));
+        }
+
+        @Test
+        @DisplayName("AC-232 the validations apply to a TEXT default")
+        void validationsApply() {
+            resolver = (template, record) -> template;
+            LineError error = error(date("fecha", "${x}").defaultMode(DefaultMode.TEXT)
+                    .validations(Validations.regex("\\d+")), "");
+
+            assertThat(error.code()).isEqualTo(ErrorCode.PATTERN_MISMATCH);
+            assertThat(error.args()).containsEntry("value", "${x}");
+        }
+
+        @Test
+        @DisplayName("AC-233 defaultMode only affects the default: a value read is still converted")
+        void readValueIsConverted() {
+            assertThat(value(date("fecha", "01/01/2026").defaultMode(DefaultMode.TEXT), "31/12/2026"))
+                    .isEqualTo(LocalDate.of(2026, 12, 31));
+        }
+
+        @Test
+        @DisplayName("AC-234 a TEXT default whose resolver returns empty is empty")
+        void emptyResolution() {
+            resolver = (template, record) -> "";
+            FieldValues values = accepted(engine(date("fecha", "${x}").defaultMode(DefaultMode.TEXT))
+                    .process(LineInput.of(line("fecha", ""))));
+
+            assertThat(values.has("fecha")).isTrue();
+            assertThat(values.get("fecha")).isNull();
+        }
+
+        @Test
+        @DisplayName("AC-235 copies of a TEXT default: TEXT gets the text, CANONICAL converts it with the target's type")
+        void copies() {
+            resolver = (template, record) -> template;
+            FieldValues values = accepted(engine(
+                    date("A", "01/01/2026").defaultMode(DefaultMode.TEXT),
+                    FieldDefinition.builder("B").inInput(false).copyFrom("A"),
+                    FieldDefinition.builder("C").inInput(false).copyFrom("A").copyMode(CopyMode.CANONICAL)
+                            .type(FieldType.DATE).typeFormat(DMY)).process(LineInput.of(line("A", ""))));
+
+            assertThat(values.get("B")).isEqualTo("01/01/2026");
+            assertThat(values.get("C")).isEqualTo(LocalDate.of(2026, 1, 1));
+
+            List<LineError> errors = rejected(engine(
+                    date("A2", "${x}").defaultMode(DefaultMode.TEXT),
+                    FieldDefinition.builder("D").inInput(false).copyFrom("A2").copyMode(CopyMode.CANONICAL)
+                            .type(FieldType.DATE)).process(LineInput.of(line("A2", ""))));
+            assertThat(errors).extracting(LineError::field, LineError::code).containsExactly(tuple("D", ErrorCode.INVALID_TYPE));
+            assertThat(errors.getFirst().args()).containsEntry("value", "${x}");
         }
     }
 

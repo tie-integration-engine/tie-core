@@ -8,6 +8,7 @@ import org.tie.config.ColumnLocation;
 import org.tie.config.ConsumerErrorPolicy;
 import org.tie.config.CopyMode;
 import org.tie.config.CsvOptions;
+import org.tie.config.DefaultMode;
 import org.tie.config.DeliveryStrategy;
 import org.tie.config.Direction;
 import org.tie.config.DuplicateProtection;
@@ -207,6 +208,7 @@ public final class DefinitionMapper {
                 .type(node.enumValue("type", FieldType.class))
                 .onEmpty(node.enumValue("onEmpty", OnEmpty.class))
                 .defaultValue(node.string("defaultValue"))
+                .defaultMode(node.enumValue("defaultMode", DefaultMode.class))
                 .outputAs(node.enumValue("outputAs", OutputAs.class));
         List<TextTransform> transforms = node.list("textTransforms", this::textTransform);
         if (transforms != null) {

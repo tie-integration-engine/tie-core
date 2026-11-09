@@ -20,6 +20,7 @@ import org.tie.ConfigurationException;
 import org.tie.config.ChannelDefinition;
 import org.tie.config.ColumnLocation;
 import org.tie.config.CopyMode;
+import org.tie.config.DefaultMode;
 import org.tie.config.CsvOptions;
 import org.tie.config.DuplicateProtection;
 import org.tie.config.FieldDefinition;
@@ -122,6 +123,24 @@ class DefinitionLoaderTest {
         }
 
         @Test
+        @DisplayName("AC-260 defaultMode TEXT loads from YAML and JSON; an unknown mode is an error that names it")
+        void defaultModeIsLoaded() {
+            String yaml = importYaml("defaultValue: x\ndefaultMode: TEXT");
+            String json = """
+                    {"version": 1, "id": "altas", "direction": "IMPORT",
+                     "inputChannels": [{"type": "LOCAL_DIRECTORY", "directory": "/in"}],
+                     "layouts": [{"name": "alta", "fileNamePattern": "alta_{timestamp:yyyyMMdd}", "allowedFormats": ["CSV"],
+                                  "fields": [{"name": "nif", "defaultValue": "x", "defaultMode": "TEXT"}]}]}
+                    """;
+
+            assertThat(DefinitionLoader.fromYaml(yaml).layouts().getFirst().fields().getFirst().defaultMode())
+                    .isEqualTo(DefaultMode.TEXT);
+            assertThat(DefinitionLoader.fromJson(json)).isEqualTo(DefinitionLoader.fromYaml(yaml));
+            assertThat(problemsOfYaml(yaml.replace("defaultMode: TEXT", "defaultMode: RAW"))).containsExactly(
+                    "layouts[0].fields[0].defaultMode: expected one of CONVERT, TEXT, got 'RAW'");
+        }
+
+        @Test
         @DisplayName("AC-227 copyMode CANONICAL loads from YAML and JSON; an unknown mode is an error that names it")
         void copyModeIsLoaded() {
             String yaml = importYaml("") + "      - name: code\n        copyFrom: nif\n        copyMode: CANONICAL\n";
@@ -190,6 +209,7 @@ class DefinitionLoaderTest {
             assertThat(people.fields().get(5).onEmpty()).isEqualTo(OnEmpty.DEFAULT);
             assertThat(people.fields().get(5).inInput()).isFalse();
             assertThat(people.fields().get(6).copyMode()).isEqualTo(CopyMode.CANONICAL);
+            assertThat(people.fields().get(5).defaultMode()).isEqualTo(DefaultMode.TEXT);
 
             Layout line = definition.layout("line").orElseThrow();
             assertThat(line.parent()).isEqualTo("order");

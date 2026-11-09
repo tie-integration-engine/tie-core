@@ -1,6 +1,7 @@
 package org.tie.internal.run;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
 import static org.tie.internal.run.ImportHarness.csv;
 
@@ -28,6 +29,7 @@ import org.tie.LineRejection;
 import org.tie.ResultStatus;
 import org.tie.TypedRecord;
 import org.tie.config.ConsumerErrorPolicy;
+import org.tie.config.DefaultMode;
 import org.tie.config.DeliveryStrategy;
 import org.tie.config.FieldDefinition;
 import org.tie.config.FieldType;
@@ -76,6 +78,21 @@ class ImportDeliveryTest {
     class Thresholds {
 
         @Test
+    @DisplayName("AC-236 a TEXT default reaches the consumer as a String: get(field, LocalDate.class) throws")
+    void textDefaultInTheTypedRecord() {
+        h.tie.defaultValueResolver((template, record) -> template);
+        h.writeLines("alta_20261026120000.csv", 1);
+
+        h.run(h.importOf(ImportHarness.csv("alta", "alta_{timestamp:yyyyMMddHHmmss}")
+                .field(FieldDefinition.builder("fecha").inInput(false).type(FieldType.DATE)
+                        .typeFormat(TypeFormat.date("dd/MM/yyyy")).defaultValue("${x}").defaultMode(DefaultMode.TEXT))));
+
+        TypedRecord record = h.records.getFirst();
+        assertThat(record.get("fecha")).isEqualTo("${x}");
+        assertThatThrownBy(() -> record.get("fecha", java.time.LocalDate.class)).isInstanceOf(ClassCastException.class);
+    }
+
+    @Test
         @DisplayName("AC-66 the file fails when rejections exceed maxRejected")
         void maxRejected() {
             writeNumbers("alta_20261026120000.csv", 5, 2);
