@@ -390,6 +390,25 @@ class ImportDeliveryTest {
     class NestedRecords {
 
         @Test
+        @DisplayName("AC-263 XML without recordElement: children numbered after their parent")
+        void xmlWithoutRecordElement() {
+            h.write("emp_20261026.xml", "<empleados>"
+                    + "<empleado><id>1</id><familiares><familiar><sku>a</sku></familiar><familiar><sku>b</sku></familiar></familiares></empleado>"
+                    + "<empleado><id>2</id></empleado></empleados>");
+
+            h.run(h.importOf(Layout.builder("order").fileNamePattern("emp_{timestamp:yyyyMMdd}").allowedFormats(FileFormat.XML)
+                            .field(FieldDefinition.builder("id")),
+                    Layout.builder("line").parent("order", "familiares").field(FieldDefinition.builder("sku"))));
+
+            assertThat(h.records).extracting(TypedRecord::layout, TypedRecord::lineNumber, TypedRecord::parentLineNumber)
+                    .containsExactly(
+                            org.assertj.core.groups.Tuple.tuple("order", 1, null),
+                            org.assertj.core.groups.Tuple.tuple("line", 2, 1),
+                            org.assertj.core.groups.Tuple.tuple("line", 3, 1),
+                            org.assertj.core.groups.Tuple.tuple("order", 4, null));
+        }
+
+        @Test
         @DisplayName("AC-78 children are numbered and delivered right after their parent")
         void childrenAfterParent() {
             h.write("orders_20261026.json", "[{\"id\":1,\"children\":[{\"sku\":\"a\"},{\"sku\":\"b\"}]},{\"id\":2}]");

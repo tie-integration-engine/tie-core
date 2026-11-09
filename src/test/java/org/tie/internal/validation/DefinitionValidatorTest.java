@@ -271,6 +271,18 @@ class DefinitionValidatorTest {
         }
 
         @Test
+        @DisplayName("AC-265 recordElement is required to export XML, not to import it")
+        void recordElementOnlyRequiredForExport() {
+            Layout.Builder export = Layout.builder("out").allowedFormats(FileFormat.XML);
+
+            assertThat(problems(validExport().layouts(List.of(export.build()))))
+                    .contains("layout 'out': xml recordElement is required");
+            assertThat(problems(importWith(csvLayout("alta").allowedFormats(FileFormat.XML)))).isEmpty();
+            assertThat(problems(importWith(csvLayout("alta").allowedFormats(FileFormat.XML).xml(XmlOptions.of(" ")))))
+                    .containsExactly("layout 'alta': xml recordElement must not be blank");
+        }
+
+        @Test
         void formatOptionsAreCheckedForAllowedFormats() {
             Layout.Builder layout = csvLayout("alta")
                     .allowedFormats(FileFormat.CSV, FileFormat.XLSX, FileFormat.XML)
@@ -280,8 +292,7 @@ class DefinitionValidatorTest {
             assertThat(problems(importWith(layout))).containsExactly(
                     "layout 'alta': csv: firstDataRow must be at least 1",
                     "layout 'alta': csv separator and quote must be different",
-                    "layout 'alta': xlsx sheet must not be blank",
-                    "layout 'alta': xml recordElement is required");
+                    "layout 'alta': xlsx sheet must not be blank");
             assertThat(problems(importWith(csvLayout("alta").allowedFormats(FileFormat.XML)
                     .xml(XmlOptions.of("record"))))).isEmpty();
         }

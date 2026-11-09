@@ -185,8 +185,9 @@ public final class DefinitionValidator {
             }
         }
         if (formats.contains(FileFormat.XML)) {
-            if (isBlank(layout.formatOptions().xml().recordElement())) {
-                problem(label + ": xml recordElement is required");
+            String recordElement = layout.formatOptions().xml().recordElement();
+            if (export ? isBlank(recordElement) : recordElement != null && recordElement.isBlank()) {
+                problem(label + (export ? ": xml recordElement is required" : ": xml recordElement must not be blank"));
             }
             if (export && isBlank(layout.formatOptions().xml().rootElement())) {
                 problem(label + ": xml rootElement is required");

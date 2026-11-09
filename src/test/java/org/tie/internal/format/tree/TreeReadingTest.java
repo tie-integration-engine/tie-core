@@ -165,6 +165,32 @@ class TreeReadingTest {
             return Reading.text(FileFormat.XML, content, root, children);
         }
 
+        private final Layout anyName = Layout.builder("r").allowedFormats(FileFormat.XML).build();
+
+        @Test
+        @DisplayName("AC-261 without recordElement every child of the root is a record")
+        void childrenOfTheRoot() {
+            Reading reading = xml("<empleados><empleado><nif>1</nif></empleado><empleado><nif>2</nif></empleado></empleados>",
+                    anyName);
+
+            assertThat(reading.raw()).containsExactly(Map.of("nif", "1"), Map.of("nif", "2"));
+        }
+
+        @Test
+        @DisplayName("AC-262 without recordElement sibling records may have different names")
+        void siblingsWithDifferentNames() {
+            assertThat(xml("<raiz><a><v>1</v></a><b><v>2</v></b></raiz>", anyName).raw())
+                    .containsExactly(Map.of("v", "1"), Map.of("v", "2"));
+        }
+
+        @Test
+        @DisplayName("AC-264 text, comments, processing instructions and attributes of the root are ignored; an empty root has no records")
+        void rootContentIgnored() {
+            assertThat(xml("<raiz a=\"1\">texto<!-- c --><?pi x?><r><v>1</v></r>más</raiz>", anyName).raw())
+                    .containsExactly(Map.of("v", "1"));
+            assertThat(xml("<raiz/>", anyName).records).isEmpty();
+        }
+
         @Test
         @DisplayName("AC-35 a DOCTYPE fails the file and its entities are never resolved")
         void doctype() {

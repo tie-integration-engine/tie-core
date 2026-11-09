@@ -21,7 +21,9 @@ import org.tie.internal.format.RecordReader;
 import org.tie.internal.format.SecureXml;
 
 /**
- * Records of an XML file: every {@code recordElement} that is not inside another record. Elements
+ * Records of an XML file: every {@code recordElement} that is not inside another record or, without
+ * {@code recordElement}, every child of the root element whatever its name (text, comments and processing
+ * instructions directly under the root are ignored). Elements
  * use their local name (namespaces are ignored), attributes are {@code @name}, the text of an
  * element with children is ignored, and a repeated element that is not a nested layout is a
  * structural error (AC-160). A DOCTYPE fails the file without being processed (AC-35).
@@ -33,6 +35,8 @@ public final class XmlRecordReader implements RecordReader {
     private final Layout root;
     private final TreeLayouts layouts;
     private boolean finished;
+    /** Element depth (the root element is 1); only used without {@code recordElement}. */
+    private int depth;
 
     public XmlRecordReader(InputStream in, XmlOptions options, Layout root, List<Layout> layouts) {
         this.recordElement = options.recordElement();
@@ -57,7 +61,14 @@ public final class XmlRecordReader implements RecordReader {
                     throw new FileFailure(FileErrorType.UNSAFE_CONTENT,
                             "XML with a DOCTYPE is not accepted (DTDs and external entities are disabled)");
                 }
-                if (event == XMLStreamConstants.START_ELEMENT && xml.getLocalName().equals(recordElement)) {
+                if (recordElement == null) {
+                    if (event == XMLStreamConstants.START_ELEMENT && ++depth == 2) {
+                        depth--;
+                        return record(element(), root);
+                    } else if (event == XMLStreamConstants.END_ELEMENT) {
+                        depth--;
+                    }
+                } else if (event == XMLStreamConstants.START_ELEMENT && xml.getLocalName().equals(recordElement)) {
                     return record(element(), root);
                 }
             }

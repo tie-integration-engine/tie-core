@@ -3,7 +3,10 @@ package org.tie.config;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
-/** XML options. {@code recordElement} is required for a layout that reads or writes XML. */
+/**
+ * XML options. {@code recordElement} is required to write XML; to read it, null means that every child of the
+ * root element is a record, whatever its name.
+ */
 public record XmlOptions(String recordElement, String rootElement, Charset encoding) {
 
     public static final XmlOptions DEFAULTS = new XmlOptions(null, null, null);
