@@ -189,6 +189,16 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "required": ["pattern"],
+          "description": "DateTimeFormatter pattern with the BCP 47 locale of its month and day names",
+          "properties": {
+            "pattern": { "type": "string", "minLength": 1 },
+            "locale": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
           "minProperties": 1,
           "properties": {
             "decimalSeparator": { "$ref": "#/$defs/char" },

@@ -124,6 +124,22 @@ class DefinitionLoaderTest {
         }
 
         @Test
+        @DisplayName("AC-259 typeFormat {pattern, locale} loads a date with locale; the string form still works")
+        void dateTypeFormatWithLocale() {
+            String yaml = importYaml("type: DATE\ntypeFormat: { pattern: dd-MMM-yyyy, locale: es-ES }");
+
+            assertThat(DefinitionLoader.fromYaml(yaml).layouts().getFirst().fields().getFirst().typeFormat())
+                    .isEqualTo(TypeFormat.date("dd-MMM-yyyy", java.util.Locale.forLanguageTag("es-ES")));
+            assertThat(DefinitionLoader.fromYaml(importYaml("type: DATE\ntypeFormat: dd/MM/yyyy")).layouts().getFirst()
+                    .fields().getFirst().typeFormat()).isEqualTo(TypeFormat.date("dd/MM/yyyy"));
+            assertThat(problemsOfYaml(yaml.replace("locale: es-ES", "locale: es_ES"))).containsExactly(
+                    "layouts[0].fields[0].typeFormat.locale: 'es_ES' is not a valid BCP 47 language tag");
+            assertThat(problemsOfYaml(yaml.replace("locale: es-ES", "decimalSeparator: \",\"")))
+                    .singleElement().asString().startsWith("layouts[0].fields[0].typeFormat: ")
+                    .contains("{pattern, locale}");
+        }
+
+        @Test
         @DisplayName("AC-252 the new XLSX options load; an ill-formed locale or an unknown cellValues is an error that names it")
         void xlsxOptionsAreLoaded() {
             String base = importYaml("") + "    formatOptions:\n      xlsx: { skipBlankRecords: true, cellValues: FORMATTED, locale: es-ES }\n";
@@ -288,8 +304,8 @@ class DefinitionLoaderTest {
                     "layouts[0].fields[0].textTransforms[1]: expected an object with length and char for PAD_LEFT,"
                             + " got 'PAD_LEFT'",
                     "layouts[0].fields[0].textTransforms[2].char: is required",
-                    "layouts[0].fields[0].typeFormat: expected a date pattern, {decimalSeparator, groupingSeparator}"
-                            + " or {trueLiteral, falseLiteral}, got an object",
+                    "layouts[0].fields[0].typeFormat: expected a date pattern, {pattern, locale},"
+                            + " {decimalSeparator, groupingSeparator} or {trueLiteral, falseLiteral}, got an object",
                     "inputChannels[0].port: expected an integer, got '22'",
                     "inputChannels[0]: unknown property 'colour'",
                     "inputChannels[1].type: expected one of SFTP, LOCAL_DIRECTORY, PROVIDED_STREAM, got 'FTP'");

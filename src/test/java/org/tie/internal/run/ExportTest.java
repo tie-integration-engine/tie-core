@@ -241,6 +241,16 @@ class ExportTest {
     }
 
     @Test
+    @DisplayName("AC-255 a date pattern with locale es-ES writes Spanish month names")
+    void spanishMonthOnExport() throws IOException {
+        run(export(layout(FileFormat.CSV, FieldDefinition.builder("day").type(FieldType.DATE)
+                .typeFormat(TypeFormat.date("dd-MMM-yyyy", java.util.Locale.forLanguageTag("es-ES"))))),
+                record("day", LocalDate.of(2026, 12, 31)));
+
+        assertThat(written("csv")).isEqualTo("day\r\n31-dic-2026\r\n");
+    }
+
+    @Test
     @DisplayName("AC-238 defaultMode is ignored on export")
     void defaultModeIgnoredOnExport() throws IOException {
         Map<String, Object> record = record("day", null);

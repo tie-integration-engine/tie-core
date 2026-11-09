@@ -285,18 +285,27 @@ public final class DefinitionMapper {
         return translation;
     }
 
+    private static final String TYPE_FORMAT_FORMS =
+            "a date pattern, {pattern, locale}, {decimalSeparator, groupingSeparator} or {trueLiteral, falseLiteral}";
+
     private TypeFormat typeFormat(Node.Item item) {
         if (item.isString()) {
             return TypeFormat.date(item.stringValue());
         }
         if (!item.isObject()) {
-            return item.error("a date pattern, {decimalSeparator, groupingSeparator} or {trueLiteral, falseLiteral}");
+            return item.error(TYPE_FORMAT_FORMS);
         }
         Node node = item.asObject();
+        boolean date = node.has("pattern") || node.has("locale");
         boolean decimal = node.has("decimalSeparator") || node.has("groupingSeparator");
         boolean literals = node.has("trueLiteral") || node.has("falseLiteral");
-        if (decimal == literals) {
-            return item.error("a date pattern, {decimalSeparator, groupingSeparator} or {trueLiteral, falseLiteral}");
+        if ((date ? 1 : 0) + (decimal ? 1 : 0) + (literals ? 1 : 0) != 1) {
+            return item.error(TYPE_FORMAT_FORMS);
+        }
+        if (date) {
+            TypeFormat format = TypeFormat.date(required(node, "pattern", node.string("pattern")), node.locale("locale"));
+            node.finish();
+            return format;
         }
         TypeFormat format = decimal
                 ? TypeFormat.decimal(node.character("decimalSeparator"), node.character("groupingSeparator"))

@@ -351,7 +351,7 @@ public final class DefinitionValidator {
         switch (field.typeFormat()) {
             case null -> {
             }
-            case TypeFormat.DateFormat(String pattern) -> {
+            case TypeFormat.DateFormat(String pattern, Locale ignored) -> {
                 if (type != FieldType.DATE && type != FieldType.DATETIME) {
                     problem(label + ": a date format only applies to DATE and DATETIME");
                 }

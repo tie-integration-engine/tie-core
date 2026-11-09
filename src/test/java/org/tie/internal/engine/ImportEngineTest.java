@@ -621,6 +621,59 @@ class ImportEngineTest {
     }
 
     @Nested
+    class DateLocales {
+
+        private static final java.util.Locale ES = java.util.Locale.forLanguageTag("es-ES");
+        private static final TypeFormat DMY_ES = TypeFormat.date("dd-MMM-yyyy", ES);
+
+        private FieldDefinition.Builder date(TypeFormat format) {
+            return FieldDefinition.builder("fecha").type(FieldType.DATE).typeFormat(format);
+        }
+
+        @Test
+        @DisplayName("AC-254 a date pattern with locale es-ES reads Spanish month names")
+        void spanishMonth() {
+            assertThat(value(date(DMY_ES), "31-dic-2026")).isEqualTo(LocalDate.of(2026, 12, 31));
+        }
+
+        @Test
+        @DisplayName("AC-256 without locale the pattern reads ROOT (English) month names only")
+        void rootMonth() {
+            TypeFormat root = TypeFormat.date("dd-MMM-yyyy");
+
+            assertThat(error(date(root), "31-dic-2026").code()).isEqualTo(ErrorCode.INVALID_TYPE);
+            assertThat(value(date(root), "31-Dec-2026")).isEqualTo(LocalDate.of(2026, 12, 31));
+        }
+
+        @Test
+        @DisplayName("AC-257 a Spanish month round-trips whatever the JDK's abbreviation; upper case does not match")
+        void roundTripAndCase() {
+            LocalDate september = LocalDate.of(2026, 9, 30);
+            String text = Values.format(september, DMY_ES);
+
+            assertThat(value(date(DMY_ES), text)).isEqualTo(september);
+            assertThat(error(date(DMY_ES), "31-DIC-2026").code()).isEqualTo(ErrorCode.INVALID_TYPE);
+        }
+
+        @Test
+        @DisplayName("AC-258 a DATETIME with AM/PM in es-ES round-trips")
+        void amPm() {
+            TypeFormat format = TypeFormat.date("dd/MM/yyyy hh:mm a", ES);
+            LocalDateTime night = LocalDateTime.of(2026, 12, 31, 22, 0);
+            String text = Values.format(night, format);
+
+            assertThat(value(FieldDefinition.builder("t").type(FieldType.DATETIME).typeFormat(format), text)).isEqualTo(night);
+        }
+
+        @Test
+        void dateFactoryAndRootEquivalence() {
+            assertThat(TypeFormat.date("dd/MM/yyyy")).isEqualTo(TypeFormat.date("dd/MM/yyyy", null));
+            assertThat(value(date(TypeFormat.date("dd-MMM-yyyy", java.util.Locale.ROOT)), "31-Dec-2026"))
+                    .isEqualTo(LocalDate.of(2026, 12, 31));
+        }
+    }
+
+    @Nested
     class DefaultModes {
 
         private static final TypeFormat DMY = TypeFormat.date("dd/MM/yyyy");

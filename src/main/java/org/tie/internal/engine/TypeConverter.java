@@ -33,7 +33,7 @@ final class TypeConverter {
     TypeConverter(FieldType type, TypeFormat format) {
         this.type = type;
         this.format = format;
-        this.dateFormatter = format instanceof TypeFormat.DateFormat(String pattern) ? strict(pattern) : null;
+        this.dateFormatter = format instanceof TypeFormat.DateFormat(String pattern, Locale locale) ? strict(pattern, locale) : null;
         this.formatDescription = describe(format);
         this.groupedDigits = format instanceof TypeFormat.DecimalFormat(Character ignored, Character grouping)
                 && grouping != null ? Pattern.compile("\\d{1,3}(" + Pattern.quote(grouping.toString()) + "\\d{3})+") : null;
@@ -211,7 +211,7 @@ final class TypeConverter {
     private static String describe(TypeFormat format) {
         return switch (format) {
             case null -> null;
-            case TypeFormat.DateFormat(String pattern) -> pattern;
+            case TypeFormat.DateFormat(String pattern, Locale ignored) -> pattern;
             case TypeFormat.DecimalFormat(Character decimal, Character grouping) ->
                     "decimalSeparator=" + (decimal == null ? "." : decimal)
                             + (grouping == null ? "" : ", groupingSeparator=" + grouping);
@@ -224,6 +224,11 @@ final class TypeConverter {
      * {@code u} (proleptic year) so that STRICT resolution does not require an era.
      */
     static DateTimeFormatter strict(String pattern) {
+        return strict(pattern, null);
+    }
+
+    /** {@link #strict(String)} with the month and day names of {@code locale}; null means {@link Locale#ROOT}. */
+    static DateTimeFormatter strict(String pattern, Locale locale) {
         StringBuilder converted = new StringBuilder(pattern.length());
         boolean quoted = false;
         for (int i = 0; i < pattern.length(); i++) {
@@ -233,6 +238,7 @@ final class TypeConverter {
             }
             converted.append(!quoted && c == 'y' ? 'u' : c);
         }
-        return DateTimeFormatter.ofPattern(converted.toString(), Locale.ROOT).withResolverStyle(ResolverStyle.STRICT);
+        return DateTimeFormatter.ofPattern(converted.toString(), locale == null ? Locale.ROOT : locale)
+                .withResolverStyle(ResolverStyle.STRICT);
     }
 }

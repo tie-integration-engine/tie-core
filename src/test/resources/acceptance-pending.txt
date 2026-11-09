@@ -1,9 +1,3 @@
 # Acceptance criteria of docs/spec.md not covered by a test yet.
 # Remove an id when a test that names it lands; AcceptanceCoverageTest fails if a covered id stays here.
 # Must be empty at the end of F9.
-AC-254
-AC-255
-AC-256
-AC-257
-AC-258
-AC-259
