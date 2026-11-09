@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import org.tie.ErrorCode;
 import org.tie.LineError;
@@ -61,6 +62,7 @@ public final class ExportEngine {
     /** Compiled expressions by field name, in declaration order. */
     private final Map<String, CompiledExpression> expressions;
     private final Map<String, FieldDefinition> fieldsByName = new HashMap<>();
+    private final Set<String> fieldNames;
 
     public ExportEngine(Layout layout, Map<String, FieldTransformer> transformers, DefaultValueResolver resolver) {
         this(layout, transformers, resolver, null);
@@ -70,6 +72,7 @@ public final class ExportEngine {
                         ExpressionEngine expressionEngine) {
         this.resolver = resolver;
         this.expressions = Expressions.compile(layout, expressionEngine);
+        this.fieldNames = Expressions.fieldNames(layout);
         layout.fields().forEach(field -> fieldsByName.put(field.name(), field));
         List<String> names = new ArrayList<>();
         Map<String, Plan> byKey = new LinkedHashMap<>();
@@ -147,7 +150,7 @@ public final class ExportEngine {
             Object current = working.get(field.copyFrom() != null ? sourceName(field.copyFrom()) : field.name());
             Object result;
             try {
-                result = entry.getValue().evaluate(Expressions.context(current, view, parent, scope));
+                result = entry.getValue().evaluate(Expressions.context(current, view, fieldNames, parent, scope));
             } catch (RuntimeException e) {
                 errors.add(LineError.of(field.name(), ErrorCode.EXPRESSION_FAILED, "exceptionMessage",
                         Exceptions.message(e)));

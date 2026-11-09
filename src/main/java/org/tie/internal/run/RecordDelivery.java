@@ -180,7 +180,7 @@ final class RecordDelivery {
         }
         applied++;
         appliedLines.applied(layout.name(), lineNumber, record.input().rawValues());
-        return Expressions.parentOf(values, parent, scope);
+        return Expressions.parentOf(values, layout, parent, scope);
     }
 
     private void reject(ReadRecord record, Layout layout, int lineNumber, Integer parentLine, List<LineError> errors) {
@@ -229,7 +229,7 @@ final class RecordDelivery {
         if (!rejected) {
             LineResult result = engines.get(layout.name()).process(record.input(), scope, parent);
             if (result instanceof LineResult.Accepted(FieldValues values)) {
-                self = Expressions.parentOf(values, parent, scope);
+                self = Expressions.parentOf(values, layout, parent, scope);
             } else {
                 counts[1]++;
                 rejected = true;

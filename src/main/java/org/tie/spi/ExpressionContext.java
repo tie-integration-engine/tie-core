@@ -2,6 +2,7 @@ package org.tie.spi;
 
 import java.time.LocalDate;
 import java.util.Map;
+import java.util.Set;
 import org.tie.RecordView;
 import org.tie.config.Direction;
 
@@ -13,6 +14,12 @@ public interface ExpressionContext {
 
     /** The values of the record; fields with an expression already evaluated show their result. */
     RecordView record();
+
+    /**
+     * The names of the fields of the record's layout, in declaration order, whether present or not: lets an
+     * engine tell a misspelt name from a field that is empty or absent.
+     */
+    Set<String> fields();
 
     /**
      * The parent record of a nested record, with its final values; null for a root record and when the

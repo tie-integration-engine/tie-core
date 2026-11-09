@@ -164,7 +164,7 @@ public final class ExportRun {
             reject(values, layout, lineNumber, parentLine, errors);
             return null;
         }
-        ExpressionContext self = Expressions.parentOf(((ExportEngine.Written) result).evaluated(), parent, scope);
+        ExpressionContext self = Expressions.parentOf(((ExportEngine.Written) result).evaluated(), layout, parent, scope);
         List<OutputRecord.Children> children = new ArrayList<>();
         for (Layout child : definition.layouts()) {
             if (!layout.name().equals(child.parent())) {

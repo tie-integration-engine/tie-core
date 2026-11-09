@@ -63,6 +63,7 @@ public final class ImportEngine {
     private final DefaultValueResolver defaultValueResolver;
     /** Compiled expressions by field name, in declaration order. */
     private final Map<String, CompiledExpression> expressions;
+    private final Set<String> fieldNames;
 
     public ImportEngine(Layout layout, Map<String, FieldTransformer> transformers,
                         DefaultValueResolver defaultValueResolver) {
@@ -77,6 +78,7 @@ public final class ImportEngine {
                         DefaultValueResolver defaultValueResolver, ExpressionEngine expressionEngine) {
         this.defaultValueResolver = defaultValueResolver;
         this.expressions = Expressions.compile(layout, expressionEngine);
+        this.fieldNames = Expressions.fieldNames(layout);
         Map<String, FieldPlan> byKey = new LinkedHashMap<>();
         List<String> names = new ArrayList<>();
         Map<String, Integer> indexes = new HashMap<>();
@@ -163,7 +165,7 @@ public final class ImportEngine {
             FieldPlan plan = byKey.get(key(name));
             Object result;
             try {
-                result = entry.getValue().evaluate(Expressions.context(values.get(name), soFar, parent, scope));
+                result = entry.getValue().evaluate(Expressions.context(values.get(name), soFar, fieldNames, parent, scope));
             } catch (RuntimeException e) {
                 errors.add(LineError.of(name, ErrorCode.EXPRESSION_FAILED, "exceptionMessage", exceptionMessage(e)));
                 continue;

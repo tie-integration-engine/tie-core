@@ -4,7 +4,9 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import org.tie.RecordView;
 import org.tie.config.Direction;
 import org.tie.config.FieldDefinition;
@@ -32,22 +34,30 @@ public final class Expressions {
     }
 
     /** The context of one evaluation; also the parent context handed to nested records. */
-    record Context(Object value, RecordView record, ExpressionContext parent, LocalDate today,
+    record Context(Object value, RecordView record, Set<String> fields, ExpressionContext parent, LocalDate today,
                    Map<String, String> variables, Direction direction) implements ExpressionContext {
     }
 
     /** The context nested records see as {@code parent}: the final values of their parent record. */
-    public static ExpressionContext parentOf(RecordView record, ExpressionContext parent, Scope scope) {
-        return new Context(null, record, parent, scope.today(), scope.variables(), scope.direction());
+    public static ExpressionContext parentOf(RecordView record, Layout layout, ExpressionContext parent, Scope scope) {
+        return new Context(null, record, fieldNames(layout), parent, scope.today(), scope.variables(), scope.direction());
     }
 
-    /** {@link #parentOf(RecordView, ExpressionContext, Scope)} for the values of an exported record. */
-    public static ExpressionContext parentOf(Map<String, Object> values, ExpressionContext parent, Scope scope) {
-        return parentOf(new FieldValues(Collections.unmodifiableMap(values), Map.of()), parent, scope);
+    /** {@link #parentOf(RecordView, Layout, ExpressionContext, Scope)} for the values of an exported record. */
+    public static ExpressionContext parentOf(Map<String, Object> values, Layout layout, ExpressionContext parent,
+                                             Scope scope) {
+        return parentOf(new FieldValues(Collections.unmodifiableMap(values), Map.of()), layout, parent, scope);
     }
 
-    static Context context(Object value, RecordView record, ExpressionContext parent, Scope scope) {
-        return new Context(value, record, parent, scope.today(), scope.variables(), scope.direction());
+    static Context context(Object value, RecordView record, Set<String> fields, ExpressionContext parent, Scope scope) {
+        return new Context(value, record, fields, parent, scope.today(), scope.variables(), scope.direction());
+    }
+
+    /** The declared field names of a layout; for a layout without fields, none. */
+    static Set<String> fieldNames(Layout layout) {
+        Set<String> names = new LinkedHashSet<>();
+        layout.fields().forEach(field -> names.add(field.name()));
+        return Collections.unmodifiableSet(names);
     }
 
     /**
