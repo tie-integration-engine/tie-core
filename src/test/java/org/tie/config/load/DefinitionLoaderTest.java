@@ -124,6 +124,17 @@ class DefinitionLoaderTest {
         }
 
         @Test
+        @DisplayName("AC-273 json.firstArray loads; a non-boolean is an error that names it")
+        void firstArrayIsLoaded() {
+            String yaml = importYaml("") + "    allowedFormats: [JSON]\n    formatOptions:\n      json: { firstArray: true }\n";
+            yaml = yaml.replace("    allowedFormats: [CSV]\n", "");
+
+            assertThat(DefinitionLoader.fromYaml(yaml).layouts().getFirst().formatOptions().json().firstArray()).isTrue();
+            assertThat(problemsOfYaml(yaml.replace("firstArray: true", "firstArray: \"sí\""))).singleElement().asString()
+                    .startsWith("layouts[0].formatOptions.json.firstArray: ");
+        }
+
+        @Test
         @DisplayName("AC-259 typeFormat {pattern, locale} loads a date with locale; the string form still works")
         void dateTypeFormatWithLocale() {
             String yaml = importYaml("type: DATE\ntypeFormat: { pattern: dd-MMM-yyyy, locale: es-ES }");

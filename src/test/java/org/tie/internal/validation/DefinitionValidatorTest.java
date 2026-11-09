@@ -27,6 +27,7 @@ import org.tie.config.FieldDefinition;
 import org.tie.config.FieldType;
 import org.tie.config.FileFormat;
 import org.tie.config.IntegrationDefinition;
+import org.tie.config.JsonOptions;
 import org.tie.config.Layout;
 import org.tie.config.OnEmpty;
 import org.tie.config.OutputAs;
@@ -268,6 +269,16 @@ class DefinitionValidatorTest {
                     + " hasHeader (set columnLocation to POSITION or LETTER)");
             assertThat(problems(importWith(noHeader.columnLocation(ColumnLocation.POSITION)))).isEmpty();
             assertThat(problems(importWith(noHeader.columnLocation(ColumnLocation.HEADER).fields(List.of())))).isEmpty();
+        }
+
+        @Test
+        @DisplayName("AC-272 recordProperty and firstArray cannot be combined on import")
+        void recordPropertyWithFirstArray() {
+            Layout.Builder layout = csvLayout("alta").allowedFormats(FileFormat.JSON)
+                    .json(JsonOptions.builder().recordProperty("x").firstArray(true).build());
+
+            assertThat(problems(importWith(layout)))
+                    .containsExactly("layout 'alta': json recordProperty and firstArray cannot be combined");
         }
 
         @Test

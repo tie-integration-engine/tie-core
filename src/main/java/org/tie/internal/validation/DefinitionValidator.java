@@ -198,6 +198,9 @@ public final class DefinitionValidator {
             if (recordProperty != null && recordProperty.isBlank()) {
                 problem(label + ": json recordProperty must not be blank");
             }
+            if (!export && recordProperty != null && layout.formatOptions().json().firstArray()) {
+                problem(label + ": json recordProperty and firstArray cannot be combined");
+            }
         }
         boolean csvWithoutHeader = formats.contains(FileFormat.CSV) && !layout.formatOptions().csv().hasHeader();
         boolean xlsxWithoutHeader = formats.contains(FileFormat.XLSX) && !layout.formatOptions().xlsx().hasHeader();

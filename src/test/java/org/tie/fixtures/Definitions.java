@@ -49,7 +49,7 @@ public final class Definitions {
                 .layout(Layout.builder("order")
                         .fileNamePattern("orders_{timestamp:yyyyMMdd}")
                         .allowedFormats(FileFormat.JSON)
-                        .json(new JsonOptions("orders", null))
+                        .json(JsonOptions.builder().recordProperty("orders").build())
                         .field(FieldDefinition.builder("id")))
                 .layout(Layout.builder("line")
                         .parent("order", "lines")

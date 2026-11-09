@@ -107,7 +107,7 @@ class LargeStreamsIT {
     void aOneGigabyteJsonWithA256MegabyteHeap() {
         AtomicLong count = new AtomicLong();
         Layout.Builder layout = Layout.builder("rows").fileNamePattern("rows").allowedFormats(FileFormat.JSON)
-                .json(new JsonOptions("rows", null))
+                .json(JsonOptions.builder().recordProperty("rows").build())
                 .field(FieldDefinition.builder("id").type(FieldType.INTEGER))
                 .field(FieldDefinition.builder("name").column("person.name"));
 

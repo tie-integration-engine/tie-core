@@ -195,7 +195,11 @@ public final class DefinitionMapper {
         }
         Node json = node.object("json");
         if (json != null) {
-            options = options.withJson(new JsonOptions(json.string("recordProperty"), json.charset("encoding")));
+            options = options.withJson(JsonOptions.builder()
+                    .recordProperty(json.string("recordProperty"))
+                    .encoding(json.charset("encoding"))
+                    .firstArray(json.bool("firstArray", false))
+                    .build());
             json.finish();
         }
         node.finish();

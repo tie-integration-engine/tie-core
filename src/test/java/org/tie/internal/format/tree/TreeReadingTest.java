@@ -40,6 +40,61 @@ class TreeReadingTest {
             return Reading.text(FileFormat.JSON, content, root, children);
         }
 
+        private final Layout firstArray = Layout.builder("r").allowedFormats(FileFormat.JSON)
+                .json(JsonOptions.builder().firstArray(true).build()).build();
+
+        @Test
+        @DisplayName("AC-266 firstArray reads the first array property of a root object, skipping the ones before")
+        void firstArrayOfTheRootObject() {
+            assertThat(json("{\"cabecera\":{\"v\":1},\"Empleados\":[{\"nif\":\"1\"},{\"nif\":\"2\"}]}", firstArray).raw())
+                    .containsExactly(Map.of("nif", "1"), Map.of("nif", "2"));
+        }
+
+        @Test
+        @DisplayName("AC-267 a root array reads the same with and without firstArray")
+        void rootArrayWithFirstArray() {
+            String content = "[{\"nif\":\"1\"}]";
+
+            assertThat(json(content, firstArray).raw()).isEqualTo(json(content, passThrough).raw())
+                    .containsExactly(Map.of("nif", "1"));
+        }
+
+        @Test
+        @DisplayName("AC-268 a root object without arrays is STRUCTURAL, with and without firstArray")
+        void rootObjectWithoutArrays() {
+            for (String content : new String[] {"{\"cabecera\":{\"v\":1}}", "{}"}) {
+                FileFailure failure = failure(() -> json(content, firstArray));
+                assertThat(failure.type()).isEqualTo(FileErrorType.STRUCTURAL);
+                assertThat(failure).hasMessageContaining("expected an array property in the root JSON object");
+            }
+            assertThat(failure(() -> json("{\"cabecera\":{\"v\":1}}", passThrough)))
+                    .hasMessageContaining("expected a JSON array of records at the root");
+        }
+
+        @Test
+        @DisplayName("AC-269 only the first array is read; a later array is not")
+        void onlyTheFirstArray() {
+            assertThat(json("{\"a\":[{\"x\":\"1\"}],\"b\":[{\"x\":\"2\"}]}", firstArray).raw())
+                    .containsExactly(Map.of("x", "1"));
+        }
+
+        @Test
+        @DisplayName("AC-270 firstArray only looks at top-level properties, not at arrays nested in objects")
+        void onlyTopLevel() {
+            assertThat(json("{\"meta\":{\"lineas\":[{\"x\":\"0\"}]},\"datos\":[{\"x\":\"1\"}]}", firstArray).raw())
+                    .containsExactly(Map.of("x", "1"));
+        }
+
+        @Test
+        @DisplayName("AC-271 firstArray: an array of scalars or a scalar root is STRUCTURAL; an empty array has no records")
+        void firstArrayEdges() {
+            FileFailure scalars = failure(() -> json("{\"datos\":[\"a\",\"b\"]}", firstArray));
+            assertThat(scalars.type()).isEqualTo(FileErrorType.STRUCTURAL);
+            assertThat(scalars).hasMessageContaining("every record must be a JSON object");
+            assertThat(failure(() -> json("\"texto\"", firstArray)).type()).isEqualTo(FileErrorType.STRUCTURAL);
+            assertThat(json("{\"datos\":[]}", firstArray).records).isEmpty();
+        }
+
         @Test
         @DisplayName("AC-39 nested objects are flattened with dotted keys")
         void flattening() {
@@ -92,7 +147,7 @@ class TreeReadingTest {
 
         @Test
         void childrenAreReadInOrderWithTheirOwnLayoutAndGrandchildren() {
-            Layout order = Layout.builder("order").allowedFormats(FileFormat.JSON).json(new JsonOptions("orders", null))
+            Layout order = Layout.builder("order").allowedFormats(FileFormat.JSON).json(JsonOptions.builder().recordProperty("orders").build())
                     .field(FieldDefinition.builder("id")).build();
             Layout line = Layout.builder("line").parent("order", "lines").field(FieldDefinition.builder("sku")).build();
             Layout note = Layout.builder("note").parent("line", "detail.notes").build();
@@ -123,7 +178,7 @@ class TreeReadingTest {
 
         @Test
         void structuralErrors() {
-            Layout byProperty = Layout.builder("r").allowedFormats(FileFormat.JSON).json(new JsonOptions("rows", null)).build();
+            Layout byProperty = Layout.builder("r").allowedFormats(FileFormat.JSON).json(JsonOptions.builder().recordProperty("rows").build()).build();
 
             assertThat(failure(() -> json("{\"a\":1}", passThrough)))
                     .hasMessage("expected a JSON array of records at the root (line 1, column 2)");

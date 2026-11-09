@@ -87,7 +87,7 @@ layouts:
     allowedFormats: [JSON, XML]
     columnLocation: HEADER
     formatOptions:
-      json: { recordProperty: orders, encoding: UTF-8 }
+      json: { recordProperty: orders, encoding: UTF-8, firstArray: false }
       xml: { recordElement: order, rootElement: orders, encoding: UTF-16 }
     fields:
       - { name: id, column: "@id", type: INTEGER }

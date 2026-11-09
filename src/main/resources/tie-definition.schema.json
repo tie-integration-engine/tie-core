@@ -114,7 +114,8 @@
       "additionalProperties": false,
       "properties": {
         "recordProperty": { "type": "string", "minLength": 1 },
-        "encoding": { "$ref": "#/$defs/encoding" }
+        "encoding": { "$ref": "#/$defs/encoding" },
+        "firstArray": { "type": "boolean" }
       }
     },
 
