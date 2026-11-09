@@ -19,6 +19,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.tie.ConfigurationException;
 import org.tie.config.ChannelDefinition;
 import org.tie.config.ColumnLocation;
+import org.tie.config.CopyMode;
 import org.tie.config.CsvOptions;
 import org.tie.config.DuplicateProtection;
 import org.tie.config.FieldDefinition;
@@ -121,6 +122,24 @@ class DefinitionLoaderTest {
         }
 
         @Test
+        @DisplayName("AC-227 copyMode CANONICAL loads from YAML and JSON; an unknown mode is an error that names it")
+        void copyModeIsLoaded() {
+            String yaml = importYaml("") + "      - name: code\n        copyFrom: nif\n        copyMode: CANONICAL\n";
+            String json = """
+                    {"version": 1, "id": "altas", "direction": "IMPORT",
+                     "inputChannels": [{"type": "LOCAL_DIRECTORY", "directory": "/in"}],
+                     "layouts": [{"name": "alta", "fileNamePattern": "alta_{timestamp:yyyyMMdd}", "allowedFormats": ["CSV"],
+                                  "fields": [{"name": "nif"}, {"name": "code", "copyFrom": "nif", "copyMode": "CANONICAL"}]}]}
+                    """;
+
+            assertThat(DefinitionLoader.fromYaml(yaml).layouts().getFirst().fields().get(1).copyMode())
+                    .isEqualTo(CopyMode.CANONICAL);
+            assertThat(DefinitionLoader.fromJson(json)).isEqualTo(DefinitionLoader.fromYaml(yaml));
+            assertThat(problemsOfYaml(yaml.replace("copyMode: CANONICAL", "copyMode: RAW"))).containsExactly(
+                    "layouts[0].fields[1].copyMode: expected one of TEXT, CANONICAL, got 'RAW'");
+        }
+
+        @Test
         @DisplayName("AC-196 timeout is an ISO-8601 duration; a bare number is an error")
         void timeoutIsIsoDuration() {
             String yaml = resource("spec-example.yaml");
@@ -170,6 +189,7 @@ class DefinitionLoaderTest {
             assertThat(people.fields().get(4).typeFormat()).isEqualTo(TypeFormat.booleanLiterals("S", "N"));
             assertThat(people.fields().get(5).onEmpty()).isEqualTo(OnEmpty.DEFAULT);
             assertThat(people.fields().get(5).inInput()).isFalse();
+            assertThat(people.fields().get(6).copyMode()).isEqualTo(CopyMode.CANONICAL);
 
             Layout line = definition.layout("line").orElseThrow();
             assertThat(line.parent()).isEqualTo("order");

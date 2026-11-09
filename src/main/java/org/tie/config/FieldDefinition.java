@@ -8,7 +8,8 @@ import java.util.List;
  *
  * <p>{@code onEmpty} defaults to {@link OnEmpty#DEFAULT} when there is a {@code defaultValue} and to
  * {@link OnEmpty#EMPTY} otherwise. {@code outputAs == null} means "derived" (see
- * {@link #effectiveOutputAs()}).
+ * {@link #effectiveOutputAs()}). {@code copyMode == null} means not declared, which behaves as
+ * {@link CopyMode#TEXT} (see {@link #effectiveCopyMode()}).
  */
 public record FieldDefinition(
         String name,
@@ -16,6 +17,7 @@ public record FieldDefinition(
         boolean inInput,
         boolean optional,
         String copyFrom,
+        CopyMode copyMode,
         List<TextTransform> textTransforms,
         List<Translation> translations,
         OnUnmatched onUnmatched,
@@ -45,6 +47,11 @@ public record FieldDefinition(
         return typeFormat != null || !textTransforms.isEmpty() || !translations.isEmpty() || transformer != null;
     }
 
+    /** {@code copyMode} if declared, else {@link CopyMode#TEXT}. */
+    public CopyMode effectiveCopyMode() {
+        return copyMode == null ? CopyMode.TEXT : copyMode;
+    }
+
     /** {@code outputAs} if set; otherwise TEXT when {@link #hasTextualExportSteps()}, else NATIVE. */
     public OutputAs effectiveOutputAs() {
         if (outputAs != null) {
@@ -55,7 +62,7 @@ public record FieldDefinition(
 
     public Builder toBuilder() {
         return new Builder().name(name).column(column).inInput(inInput).optional(optional).copyFrom(copyFrom)
-                .textTransforms(textTransforms).translations(translations).onUnmatched(onUnmatched)
+                .copyMode(copyMode).textTransforms(textTransforms).translations(translations).onUnmatched(onUnmatched)
                 .transformer(transformer).type(type).typeFormat(typeFormat).validations(validations)
                 .onEmpty(onEmpty).defaultValue(defaultValue).outputAs(outputAs);
     }
@@ -66,6 +73,7 @@ public record FieldDefinition(
         private boolean inInput = true;
         private boolean optional;
         private String copyFrom;
+        private CopyMode copyMode;
         private final List<TextTransform> textTransforms = new ArrayList<>();
         private final List<Translation> translations = new ArrayList<>();
         private OnUnmatched onUnmatched;
@@ -102,6 +110,11 @@ public record FieldDefinition(
 
         public Builder copyFrom(String copyFrom) {
             this.copyFrom = copyFrom;
+            return this;
+        }
+
+        public Builder copyMode(CopyMode copyMode) {
+            this.copyMode = copyMode;
             return this;
         }
 
@@ -172,7 +185,7 @@ public record FieldDefinition(
         }
 
         public FieldDefinition build() {
-            return new FieldDefinition(name, column, inInput, optional, copyFrom, textTransforms, translations,
+            return new FieldDefinition(name, column, inInput, optional, copyFrom, copyMode, textTransforms, translations,
                     onUnmatched, transformer, type, typeFormat, validations, onEmpty, defaultValue, outputAs);
         }
     }

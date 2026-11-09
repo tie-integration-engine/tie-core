@@ -18,6 +18,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.tie.config.ColumnLocation;
+import org.tie.config.CopyMode;
 import org.tie.config.CsvOptions;
 import org.tie.config.DeliveryStrategy;
 import org.tie.config.DuplicateProtection;
@@ -152,6 +153,16 @@ class DefinitionValidatorTest {
 
             assertThat(problems(definition))
                     .containsExactly("layout 'out': nested layouts are only supported in JSON and XML exports");
+        }
+
+        @Test
+        @DisplayName("AC-225 copyMode requires copyFrom")
+        void copyModeWithoutCopyFrom() {
+            Layout.Builder layout = csvLayout("alta").field(FieldDefinition.builder("fecha").copyMode(CopyMode.CANONICAL));
+
+            assertThat(problems(importWith(layout))).containsExactly("layout 'alta', field 'fecha': copyMode requires copyFrom");
+            assertThat(problems(importWith(csvLayout("alta").field(FieldDefinition.builder("copia").copyFrom("nif")
+                    .copyMode(CopyMode.TEXT))))).isEmpty();
         }
 
         @Test

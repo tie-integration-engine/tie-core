@@ -125,6 +125,7 @@
         "inInput": { "type": "boolean" },
         "optional": { "type": "boolean" },
         "copyFrom": { "type": "string", "minLength": 1 },
+        "copyMode": { "enum": ["TEXT", "CANONICAL"] },
         "textTransforms": { "type": "array", "items": { "$ref": "#/$defs/textTransform" } },
         "translations": { "type": "array", "items": { "$ref": "#/$defs/translation" } },
         "onUnmatched": { "enum": ["PASS", "EMPTY", "ERROR"] },
