@@ -90,6 +90,41 @@ class XlsxReadingTest {
         return reading.raw().getFirst();
     }
 
+    /** Header {@code a, b, c}; data rows 2 and 3; row 4 with blank cells " ", "", " "; data row 5. */
+    private Path withBlankRow() throws IOException {
+        return workbook(book -> {
+            Sheet sheet = book.createSheet();
+            String[][] rows = {{"a", "b", "c"}, {"1", "x", "y"}, {"2", "x", "y"}, {" ", "", " "}, {"3", "x", "y"}};
+            for (int r = 0; r < rows.length; r++) {
+                org.apache.poi.ss.usermodel.Row row = sheet.createRow(r);
+                for (int c = 0; c < rows[r].length; c++) {
+                    row.createCell(c).setCellValue(rows[r][c]);
+                }
+            }
+        });
+    }
+
+    @Test
+    @DisplayName("AC-249 skipBlankRecords drops an XLSX row whose cells are all blank; the next keeps its row number")
+    void skipBlankRows() throws IOException {
+        Layout layout = Layout.builder("l").allowedFormats(FileFormat.XLSX)
+                .xlsx(XlsxOptions.builder().skipBlankRecords(true).build()).build();
+
+        Reading reading = Reading.file(FileFormat.XLSX, withBlankRow(), layout);
+
+        assertThat(reading.records).extracting(org.tie.internal.format.ReadRecord::rowNumber).containsExactly(2, 3, 5);
+        assertThat(reading.raw()).extracting(values -> values.get("a")).containsExactly("1", "2", "3");
+    }
+
+    @Test
+    @DisplayName("AC-250 without skipBlankRecords the blank XLSX row is a record with blank values")
+    void keepBlankRows() throws IOException {
+        Reading reading = Reading.file(FileFormat.XLSX, withBlankRow(), passThrough());
+
+        assertThat(reading.records).extracting(org.tie.internal.format.ReadRecord::rowNumber).containsExactly(2, 3, 4, 5);
+        assertThat(reading.raw().get(2)).containsEntry("a", " ").containsEntry("c", " ");
+    }
+
     @Test
     @DisplayName("AC-37 a formula is read as its cached value")
     void formulaCachedValue() throws IOException {
@@ -150,7 +185,7 @@ class XlsxReadingTest {
             sheet.createRow(3).createCell(0).setCellValue("1");
             sheet.createRow(4).createCell(0).setCellValue("2");
         });
-        Layout layout = Layout.builder("l").allowedFormats(FileFormat.XLSX).xlsx(new XlsxOptions(null, true, 4))
+        Layout layout = Layout.builder("l").allowedFormats(FileFormat.XLSX).xlsx(XlsxOptions.builder().firstDataRow(4).build())
                 .field(FieldDefinition.builder("nif")).build();
 
         Reading reading = Reading.file(FileFormat.XLSX, file, layout);
@@ -261,8 +296,8 @@ class XlsxReadingTest {
             second.createRow(0).createCell(0).setCellValue("v");
             second.createRow(1).createCell(0).setCellValue("second");
         });
-        Layout second = Layout.builder("l").allowedFormats(FileFormat.XLSX).xlsx(new XlsxOptions("Second", true, 2)).build();
-        Layout missing = Layout.builder("l").allowedFormats(FileFormat.XLSX).xlsx(new XlsxOptions("Nope", true, 2)).build();
+        Layout second = Layout.builder("l").allowedFormats(FileFormat.XLSX).xlsx(XlsxOptions.builder().sheet("Second").build()).build();
+        Layout missing = Layout.builder("l").allowedFormats(FileFormat.XLSX).xlsx(XlsxOptions.builder().sheet("Nope").build()).build();
 
         assertThat(onlyRecord(Reading.file(FileFormat.XLSX, file, second))).containsExactly(entry("v", "second"));
         assertThat(Reading.file(FileFormat.XLSX, file, passThrough()).records).isEmpty();
@@ -281,7 +316,7 @@ class XlsxReadingTest {
             row.createCell(27).setCellValue("ab");
         });
         Layout layout = Layout.builder("l").allowedFormats(FileFormat.XLSX).columnLocation(ColumnLocation.LETTER)
-                .xlsx(new XlsxOptions(null, false, 1))
+                .xlsx(XlsxOptions.builder().hasHeader(false).firstDataRow(1).build())
                 .field(FieldDefinition.builder("first").column("A"))
                 .field(FieldDefinition.builder("far").column("AB"))
                 .build();

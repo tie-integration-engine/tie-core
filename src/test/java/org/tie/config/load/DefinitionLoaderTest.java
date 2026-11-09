@@ -36,6 +36,7 @@ import org.tie.config.TextTransform;
 import org.tie.config.Translation;
 import org.tie.config.TranslationDirection;
 import org.tie.config.TypeFormat;
+import org.tie.config.XlsxCellValues;
 import org.tie.config.XlsxOptions;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.dataformat.yaml.YAMLMapper;
@@ -91,7 +92,7 @@ class DefinitionLoaderTest {
                         .fileNamePattern("alta_{tenant}_{timestamp:yyyyMMddHHmmss}")
                         .allowedFormats(FileFormat.CSV, FileFormat.XLSX)
                         .csv(CsvOptions.builder().separator(';').build())
-                        .xlsx(new XlsxOptions("Altas", true, 2))
+                        .xlsx(XlsxOptions.builder().sheet("Altas").build())
                         .columnLocation(ColumnLocation.HEADER)
                         .field(FieldDefinition.builder("nif")
                                 .textTransform(TextTransform.UPPER)
@@ -120,6 +121,20 @@ class DefinitionLoaderTest {
         @DisplayName("AC-195 MOVE and PAD_LEFT written as typed objects load equal to the builders")
         void typedObjectsMatchBuilders() {
             assertThat(DefinitionLoader.fromYaml(resource("spec-example.yaml"))).isEqualTo(specExampleWithBuilders());
+        }
+
+        @Test
+        @DisplayName("AC-252 the new XLSX options load; an ill-formed locale or an unknown cellValues is an error that names it")
+        void xlsxOptionsAreLoaded() {
+            String base = importYaml("") + "    formatOptions:\n      xlsx: { skipBlankRecords: true, cellValues: FORMATTED, locale: es-ES }\n";
+
+            XlsxOptions xlsx = DefinitionLoader.fromYaml(base).layouts().getFirst().formatOptions().xlsx();
+            assertThat(xlsx).isEqualTo(XlsxOptions.builder().skipBlankRecords(true).cellValues(XlsxCellValues.FORMATTED)
+                    .locale(java.util.Locale.forLanguageTag("es-ES")).build());
+            assertThat(problemsOfYaml(base.replace("locale: es-ES", "locale: es_ES"))).containsExactly(
+                    "layouts[0].formatOptions.xlsx.locale: 'es_ES' is not a valid BCP 47 language tag");
+            assertThat(problemsOfYaml(base.replace("cellValues: FORMATTED", "cellValues: RAW"))).containsExactly(
+                    "layouts[0].formatOptions.xlsx.cellValues: expected one of CANONICAL, FORMATTED, got 'RAW'");
         }
 
         @Test
@@ -195,7 +210,8 @@ class DefinitionLoaderTest {
             Layout people = definition.layout("people").orElseThrow();
             assertThat(people.formatOptions().csv())
                     .isEqualTo(new CsvOptions(';', '\'', java.nio.charset.Charset.forName("ISO-8859-1"), true, 4, true));
-            assertThat(people.formatOptions().xlsx()).isEqualTo(new XlsxOptions("People", false, 3));
+            assertThat(people.formatOptions().xlsx()).isEqualTo(new XlsxOptions("People", false, 3, true, XlsxCellValues.FORMATTED,
+                    java.util.Locale.forLanguageTag("es-ES")));
             FieldDefinition nif = people.fields().get(0);
             assertThat(nif.textTransforms()).containsExactly(TextTransform.UPPER, TextTransform.STRIP_ACCENTS,
                     TextTransform.padLeft(9, '0'), TextTransform.LOWER);

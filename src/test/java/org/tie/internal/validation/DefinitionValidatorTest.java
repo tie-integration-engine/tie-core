@@ -275,7 +275,7 @@ class DefinitionValidatorTest {
             Layout.Builder layout = csvLayout("alta")
                     .allowedFormats(FileFormat.CSV, FileFormat.XLSX, FileFormat.XML)
                     .csv(CsvOptions.builder().separator('"').firstDataRow(0).build())
-                    .xlsx(new XlsxOptions(" ", true, 2));
+                    .xlsx(XlsxOptions.builder().sheet(" ").build());
 
             assertThat(problems(importWith(layout))).containsExactly(
                     "layout 'alta': csv: firstDataRow must be at least 1",

@@ -36,6 +36,7 @@ import org.tie.config.Translation;
 import org.tie.config.TranslationDirection;
 import org.tie.config.TypeFormat;
 import org.tie.config.Validations;
+import org.tie.config.XlsxCellValues;
 import org.tie.config.XlsxOptions;
 import org.tie.config.XmlOptions;
 import tools.jackson.databind.JsonNode;
@@ -176,9 +177,14 @@ public final class DefinitionMapper {
         Node xlsx = node.object("xlsx");
         if (xlsx != null) {
             Integer firstDataRow = xlsx.integer("firstDataRow");
-            options = options.withXlsx(new XlsxOptions(xlsx.string("sheet"),
-                    xlsx.bool("hasHeader", XlsxOptions.DEFAULTS.hasHeader()),
-                    firstDataRow == null ? XlsxOptions.DEFAULTS.firstDataRow() : firstDataRow));
+            options = options.withXlsx(XlsxOptions.builder()
+                    .sheet(xlsx.string("sheet"))
+                    .hasHeader(xlsx.bool("hasHeader", XlsxOptions.DEFAULTS.hasHeader()))
+                    .firstDataRow(firstDataRow == null ? XlsxOptions.DEFAULTS.firstDataRow() : firstDataRow)
+                    .skipBlankRecords(xlsx.bool("skipBlankRecords", false))
+                    .cellValues(xlsx.enumValue("cellValues", XlsxCellValues.class))
+                    .locale(xlsx.locale("locale"))
+                    .build());
             xlsx.finish();
         }
         Node xml = node.object("xml");

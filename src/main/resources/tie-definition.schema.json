@@ -94,7 +94,10 @@
       "properties": {
         "sheet": { "type": "string", "minLength": 1 },
         "hasHeader": { "type": "boolean" },
-        "firstDataRow": { "type": "integer", "minimum": 1 }
+        "firstDataRow": { "type": "integer", "minimum": 1 },
+        "skipBlankRecords": { "type": "boolean" },
+        "cellValues": { "enum": ["CANONICAL", "FORMATTED"] },
+        "locale": { "type": "string", "minLength": 1 }
       }
     },
     "xmlOptions": {

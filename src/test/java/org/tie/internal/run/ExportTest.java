@@ -271,6 +271,32 @@ class ExportTest {
     }
 
     @Test
+    @DisplayName("AC-253 the XLSX reading options are ignored on export")
+    void xlsxReadingOptionsIgnoredOnExport() throws IOException {
+        Map<String, Object> record = record("n", 42L, "day", LocalDate.of(2026, 12, 31), "t", " ");
+        FieldDefinition.Builder[] fields = {FieldDefinition.builder("n").type(FieldType.INTEGER),
+                FieldDefinition.builder("day").type(FieldType.DATE), FieldDefinition.builder("t")};
+
+        run(export(layout(FileFormat.XLSX, fields)), record);
+        byte[] plain = sheetXml(out.resolve(NAME + ".xlsx"));
+        Files.delete(out.resolve(NAME + ".xlsx"));
+        run(export(layout(FileFormat.XLSX, fields).xlsx(org.tie.config.XlsxOptions.builder().skipBlankRecords(true)
+                .cellValues(org.tie.config.XlsxCellValues.FORMATTED).locale(java.util.Locale.forLanguageTag("es-ES")).build())),
+                record);
+
+        assertThat(sheetXml(out.resolve(NAME + ".xlsx"))).isEqualTo(plain);
+    }
+
+    private static byte[] sheetXml(Path xlsx) throws IOException {
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(xlsx.toFile())) {
+            java.util.zip.ZipEntry sheet = zip.getEntry("xl/worksheets/sheet1.xml");
+            try (InputStream in = zip.getInputStream(sheet)) {
+                return in.readAllBytes();
+            }
+        }
+    }
+
+    @Test
     @DisplayName("AC-177 XLSX dates are date cells unless they have a typeFormat")
     void xlsxDates() throws IOException {
         run(export(layout(FileFormat.XLSX,

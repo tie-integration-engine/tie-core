@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.entry;
 import static org.tie.internal.run.ImportHarness.csv;
 
 import java.math.BigDecimal;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -78,6 +79,27 @@ class ImportDeliveryTest {
     class Thresholds {
 
         @Test
+    @DisplayName("AC-249 a skipped blank XLSX row does not use a line number")
+    void skippedXlsxRowKeepsLineNumbers() throws IOException {
+        Path file = h.in.resolve("alta_20261026120000.xlsx");
+        try (org.apache.poi.xssf.usermodel.XSSFWorkbook book = new org.apache.poi.xssf.usermodel.XSSFWorkbook();
+             java.io.OutputStream out = java.nio.file.Files.newOutputStream(file)) {
+            org.apache.poi.ss.usermodel.Sheet sheet = book.createSheet();
+            String[] values = {"value", "v1", "v2", " ", "v3"};
+            for (int r = 0; r < values.length; r++) {
+                sheet.createRow(r).createCell(0).setCellValue(values[r]);
+            }
+            book.write(out);
+        }
+
+        h.run(h.importOf(ImportHarness.csv("alta", "alta_{timestamp:yyyyMMddHHmmss}").allowedFormats(FileFormat.XLSX)
+                .xlsx(org.tie.config.XlsxOptions.builder().skipBlankRecords(true).build())));
+
+        assertThat(h.records).extracting(TypedRecord::lineNumber).containsExactly(1, 2, 3);
+        assertThat(h.records).extracting(record -> record.get("value")).containsExactly("v1", "v2", "v3");
+    }
+
+    @Test
     @DisplayName("AC-236 a TEXT default reaches the consumer as a String: get(field, LocalDate.class) throws")
     void textDefaultInTheTypedRecord() {
         h.tie.defaultValueResolver((template, record) -> template);
