@@ -273,6 +273,18 @@ class DefinitionValidatorTest {
         }
 
         @Test
+        @DisplayName("AC-314 a masked credential (***) is a configuration problem")
+        void maskedCredentials() {
+            IntegrationDefinition.Builder password = validImport().inputChannels(List.of(validSftp().password("***").build()));
+            IntegrationDefinition.Builder key = validImport().inputChannels(List.of(validSftp().password(null)
+                    .privateKey("***").build()));
+
+            assertThat(problems(password)).singleElement().asString()
+                    .endsWith("password is masked (***): set the real value or a ${secret:name} reference");
+            assertThat(problems(key)).singleElement().asString().contains("privateKey is masked (***)");
+        }
+
+        @Test
         @DisplayName("AC-275 fileNamePattern stays required when any input channel lists files")
         void patternRequiredWithListingChannels() {
             Layout.Builder noPattern = csvLayout("alta").fileNamePattern(null);
