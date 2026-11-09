@@ -77,6 +77,7 @@ layouts:
       - name: code
         inInput: false
         copyFrom: nif
+        copyMode: CANONICAL
         textTransforms: [{ type: PAD_RIGHT, length: 12, char: "_" }]
         defaultValue: "${country}-x"
         onEmpty: DEFAULT

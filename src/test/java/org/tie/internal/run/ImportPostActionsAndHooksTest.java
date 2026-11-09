@@ -28,6 +28,10 @@ import org.tie.WarningCode;
 import org.tie.config.DeliveryStrategy;
 import org.tie.config.DuplicateProtection;
 import org.tie.config.FieldDefinition;
+import org.tie.config.ResultReport;
+import org.tie.config.ReportMode;
+import org.tie.config.LocalDirectoryChannel;
+import org.tie.config.FileFormat;
 import org.tie.config.PostSuccessAction;
 import org.tie.config.ProvidedStreamChannel;
 import org.tie.spi.FileHook;
@@ -270,15 +274,226 @@ class ImportPostActionsAndHooksTest {
         }
 
         @Test
-        @DisplayName("AC-117 provided inputs never call the file hook")
-        void providedInputsSkipHooks() {
-            h.context.providedInput("alta", "p.csv", new ByteArrayInputStream("value\nv\n".getBytes(StandardCharsets.UTF_8)));
+        @DisplayName("AC-117 provided inputs call both hook methods; their timestamp is null")
+        void providedInputsCallHooks() {
+            provide("p.csv", "value\nv\n");
 
-            ImportResult result = h.run(h.altas().inputChannels(List.of(ProvidedStreamChannel.INSTANCE)));
+            ImportResult result = runProvided(h.altas());
 
-            assertThat(h.received).isEmpty();
-            assertThat(h.completed).isEmpty();
+            assertThat(h.received).singleElement().satisfies(file -> assertThat(file.timestamp()).isNull());
+            assertThat(h.completed).singleElement().satisfies(partial -> assertThat(partial.timestamp()).isNull());
             assertThat(result.files().getFirst().timestamp()).isNull();
+        }
+
+        @Test
+        @DisplayName("AC-198 provided input: onFileReceived, consumer x3, onFileCompleted, onFileFinished")
+        void providedCallOrder() {
+            provide("p.csv", "value\nv1\nv2\nv3\n");
+
+            ImportResult result = runProvided(h.altas());
+
+            assertThat(result.status()).isEqualTo(ResultStatus.SUCCESS);
+            assertThat(h.events).containsExactly("started p.csv", "received p.csv", "consumer alta:1", "consumer alta:2",
+                    "consumer alta:3", "completed p.csv", "finished p.csv SUCCESS");
+            assertThat(h.received).singleElement().satisfies(file -> {
+                assertThat(file.name()).isEqualTo("p.csv");
+                assertThat(file.layout()).isEqualTo("alta");
+                assertThat(file.timestamp()).isNull();
+                assertThat(file.size()).isEqualTo(15);
+            });
+        }
+
+        @Test
+        @DisplayName("AC-199 the local copy of a provided input is identical to the stream")
+        void providedLocalCopy() {
+            byte[] content = "value\nñandú\nv2\n".getBytes(StandardCharsets.UTF_8);
+            h.context.providedInput("alta", "p.csv", new ByteArrayInputStream(content));
+            List<byte[]> copies = new ArrayList<>();
+            h.context.fileHook(new FileHook() {
+                @Override
+                public void onFileReceived(ReceivedFile file) {
+                    copies.add(read(file.localCopy()));
+                }
+            });
+
+            runProvided(h.altas());
+
+            assertThat(copies).singleElement().isEqualTo(content);
+        }
+
+        @Test
+        @DisplayName("AC-200 onFileReceived that throws with a provided input: nothing delivered, run stopped")
+        void providedReceivedThrows() {
+            provide("p1.csv", "value\nv1\n");
+            provide("p2.csv", "value\nv1\n");
+            h.context.fileHook(new FileHook() {
+                @Override
+                public void onFileReceived(ReceivedFile file) {
+                    throw new IllegalStateException("no space");
+                }
+            });
+
+            ImportResult result = runProvided(h.altas());
+
+            assertThat(h.records).isEmpty();
+            assertThat(result.status()).isEqualTo(ResultStatus.FAILED);
+            assertThat(result.files()).extracting(FileResult::status).containsExactly(FileStatus.FAILED, FileStatus.NOT_PROCESSED);
+            assertThat(result.files().getFirst().error().type()).isEqualTo(FileErrorType.HOOK);
+            assertThat(result.files().getFirst().error().message()).isEqualTo("onFileReceived failed: no space");
+        }
+
+        @Test
+        @DisplayName("AC-201 onFileCompleted that throws with a provided input: records delivered, failed, no report")
+        void providedCompletedThrows() throws IOException {
+            Path reports = Files.createDirectories(root.resolve("reports"));
+            provide("p.csv", "value\nv1\nv2\nv3\n");
+            h.context.fileHook(new FileHook() {
+                @Override
+                public void onFileCompleted(FileResult partial) {
+                    throw new IllegalStateException("cannot save");
+                }
+            });
+
+            ImportResult result = runProvided(h.altas().resultReport(new ResultReport(ReportMode.REJECTED_AND_APPLIED,
+                    FileFormat.CSV, LocalDirectoryChannel.of(reports), "{sourceName}_result")));
+
+            FileResult file = result.files().getFirst();
+            assertThat(h.records).hasSize(3);
+            assertThat(file.deliveredUpToLine()).isEqualTo(3);
+            assertThat(file.status()).isEqualTo(FileStatus.FAILED);
+            assertThat(file.error().type()).isEqualTo(FileErrorType.HOOK);
+            assertThat(h.filesIn(reports)).isEmpty();
+            assertThat(result.reports()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("AC-202 a provided CSV without a file hook is read from the stream, with no working copy")
+        void providedWithoutHookIsNotSpooled() {
+            h.context.fileHook(null);
+            provide("p.csv", "value\nv1\nv2\n");
+            List<List<String>> seen = new ArrayList<>();
+            h.behaviour = record -> {
+                seen.add(tieFiles());
+                return Outcome.APPLIED;
+            };
+
+            runProvided(h.altas());
+
+            assertThat(seen).hasSize(2).allSatisfy(files -> assertThat(files).isEmpty());
+        }
+
+        @Test
+        @DisplayName("AC-203 the spooled copy of a provided input is gone when the file ends, with or without success")
+        void spooledCopyIsRemoved() {
+            List<List<String>> duringHook = new ArrayList<>();
+            FileHook hook = new FileHook() {
+                @Override
+                public void onFileReceived(ReceivedFile file) {
+                    duringHook.add(tieFiles());
+                }
+
+                @Override
+                public void onFileCompleted(FileResult partial) {
+                    if (partial.name().equals("bad.csv")) {
+                        throw new IllegalStateException("cannot save");
+                    }
+                }
+            };
+            h.context.fileHook(hook);
+            provide("ok.csv", "value\nv1\n");
+            ImportResult ok = runProvided(h.altas());
+            List<String> afterOk = tieFiles();
+
+            h.context = org.tie.ImportContext.builder(h.consumer).listener(h.listener).workingDirectory(h.work)
+                    .fileHook(hook);
+            provide("bad.csv", "value\nv1\n");
+            ImportResult bad = runProvided(h.altas());
+
+            assertThat(ok.files().getFirst().status()).isEqualTo(FileStatus.SUCCESS);
+            assertThat(bad.files().getFirst().status()).isEqualTo(FileStatus.FAILED);
+            assertThat(duringHook).hasSize(2).allSatisfy(files -> assertThat(files).hasSize(1));
+            assertThat(afterOk).isEmpty();
+            assertThat(tieFiles()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("AC-204 provided XLSX with VALIDATE_THEN_DELIVER and a hook: one spool, onFileReceived once, first")
+        void providedXlsxSpooledOnce() throws IOException {
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            try (org.apache.poi.xssf.usermodel.XSSFWorkbook workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook()) {
+                org.apache.poi.ss.usermodel.Sheet sheet = workbook.createSheet();
+                sheet.createRow(0).createCell(0).setCellValue("value");
+                sheet.createRow(1).createCell(0).setCellValue("x");
+                workbook.write(bytes);
+            }
+            h.context.providedInput("alta", "p.xlsx", new ByteArrayInputStream(bytes.toByteArray()));
+            List<List<String>> duringHook = new ArrayList<>();
+            List<java.nio.file.Path> copies = new ArrayList<>();
+            h.context.fileHook(new FileHook() {
+                @Override
+                public void onFileReceived(ReceivedFile file) {
+                    h.events.add("received " + file.name());
+                    duringHook.add(tieFiles());
+                    copies.add(file.localCopy());
+                }
+            });
+            h.tie.transformer("trace", (value, record, direction) -> {
+                h.events.add("transform");
+                return value;
+            });
+
+            ImportResult result = runProvided(h.importOf(ImportHarness.csv("alta", "alta").allowedFormats(FileFormat.XLSX)
+                            .fields(List.of(FieldDefinition.builder("value").transformer("trace").build())))
+                    .deliveryStrategy(DeliveryStrategy.VALIDATE_THEN_DELIVER));
+
+            assertThat(result.files().getFirst().applied()).isEqualTo(1);
+            assertThat(h.events).filteredOn(event -> event.startsWith("received")).hasSize(1);
+            assertThat(h.events).containsSubsequence("received p.xlsx", "transform", "transform", "consumer alta:1");
+            assertThat(duringHook).singleElement().satisfies(files -> assertThat(files)
+                    .containsExactly(copies.getFirst().getFileName().toString()));
+        }
+
+        @Test
+        @DisplayName("AC-205 a provided stream that fails while spooling: CHANNEL, no hook, no records")
+        void providedStreamFails() {
+            h.context.providedInput("alta", "p.csv", new java.io.InputStream() {
+                private int left = 8;
+
+                @Override
+                public int read() throws IOException {
+                    if (left-- > 0) {
+                        return 'v';
+                    }
+                    throw new IOException("connection reset");
+                }
+            });
+
+            ImportResult result = runProvided(h.altas());
+
+            assertThat(result.files().getFirst().status()).isEqualTo(FileStatus.FAILED);
+            assertThat(result.files().getFirst().error().type()).isEqualTo(FileErrorType.CHANNEL);
+            assertThat(h.received).isEmpty();
+            assertThat(h.records).isEmpty();
+        }
+
+        private void provide(String name, String content) {
+            h.context.providedInput("alta", name, new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)));
+        }
+
+        private ImportResult runProvided(org.tie.config.IntegrationDefinition.Builder definition) {
+            return h.run(definition.inputChannels(List.of(ProvidedStreamChannel.INSTANCE)));
+        }
+
+        private List<String> tieFiles() {
+            return h.filesIn(h.work).stream().filter(name -> name.startsWith("tie-")).toList();
+        }
+
+        private static byte[] read(Path file) {
+            try {
+                return Files.readAllBytes(file);
+            } catch (IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
         }
 
         @Test

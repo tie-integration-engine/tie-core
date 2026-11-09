@@ -6,6 +6,7 @@ import java.util.Set;
 import org.tie.config.ChannelDefinition;
 import org.tie.config.ColumnLocation;
 import org.tie.config.ConsumerErrorPolicy;
+import org.tie.config.CopyMode;
 import org.tie.config.CsvOptions;
 import org.tie.config.DeliveryStrategy;
 import org.tie.config.Direction;
@@ -200,6 +201,7 @@ public final class DefinitionMapper {
                 .inInput(node.bool("inInput", true))
                 .optional(node.bool("optional", false))
                 .copyFrom(node.string("copyFrom"))
+                .copyMode(node.enumValue("copyMode", CopyMode.class))
                 .onUnmatched(node.enumValue("onUnmatched", OnUnmatched.class))
                 .transformer(node.string("transformer"))
                 .type(node.enumValue("type", FieldType.class))

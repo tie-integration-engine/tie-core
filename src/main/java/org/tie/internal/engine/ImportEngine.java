@@ -15,8 +15,10 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import org.tie.ErrorCode;
 import org.tie.LineError;
+import org.tie.config.CopyMode;
 import org.tie.config.Direction;
 import org.tie.config.FieldDefinition;
+import org.tie.config.FieldType;
 import org.tie.config.Layout;
 import org.tie.config.OnUnmatched;
 import org.tie.config.Translation;
@@ -33,6 +35,10 @@ import org.tie.spi.FieldTransformer;
  * 6 custom transformer, 7 convert to the type, 8 validations and 9 resolve empty; at the end of the
  * line, 10 drops the KEEP fields.
  *
+ * <p>Step 2 copies the source's text ({@code copyMode TEXT}) or the canonical text of its typed value
+ * ({@code copyMode CANONICAL}); in the latter case, when the source is not STRING and steps 3-6 leave
+ * the text unchanged, step 7 tries the canonical form before {@code typeFormat} (§4.3 «Copia»).
+ *
  * <p>A step that fails stops that field; the other fields are still computed so that the line reports
  * all its errors at once (AC-64). The custom transformer is only called with non-empty values.
  *
@@ -41,6 +47,7 @@ import org.tie.spi.FieldTransformer;
 public final class ImportEngine {
 
     private final List<FieldPlan> order;
+    private final Map<String, FieldPlan> byKey;
     private final List<String> declaredNames;
     private final Map<String, Integer> declaredIndex;
     private final DefaultValueResolver defaultValueResolver;
@@ -68,6 +75,7 @@ public final class ImportEngine {
             names.add(field.name());
         }
         this.order = FieldOrder.of(layout.fields()).stream().map(field -> byKey.get(key(field.name()))).toList();
+        this.byKey = Map.copyOf(byKey);
         this.declaredNames = List.copyOf(names);
         this.declaredIndex = Map.copyOf(indexes);
     }
@@ -78,18 +86,26 @@ public final class ImportEngine {
         }
         Map<String, Object> values = new LinkedHashMap<>();
         FieldValues soFar = new FieldValues(Collections.unmodifiableMap(values), input.rawValues());
-        Map<String, String> texts = new HashMap<>();
+        Map<String, Outcome> outcomes = new HashMap<>();
         Set<String> kept = new HashSet<>();
         List<LineError> errors = new ArrayList<>();
 
         for (FieldPlan plan : order) {
             FieldDefinition field = plan.field();
             String text = field.inInput() ? input.fieldInputs().get(field.name()) : null;
+            String canonicalCopy = null;
             if (field.copyFrom() != null) {
-                text = texts.get(key(field.copyFrom()));
+                Outcome source = outcomes.get(key(field.copyFrom()));
+                if (field.effectiveCopyMode() == CopyMode.CANONICAL) {
+                    text = source.typed() == null ? null : Values.canonical(source.typed());
+                    canonicalCopy = text != null && byKey.get(key(field.copyFrom())).field().type() != FieldType.STRING
+                            ? text : null;
+                } else {
+                    text = source.text();
+                }
             }
-            Outcome outcome = compute(plan, text, soFar, input.canonicalFallback());
-            texts.put(key(field.name()), outcome.text());
+            Outcome outcome = compute(plan, text, soFar, input.canonicalFallback(), canonicalCopy);
+            outcomes.put(key(field.name()), outcome);
             if (!outcome.errors().isEmpty()) {
                 errors.addAll(outcome.errors());
             } else if (outcome.kept()) {
@@ -116,7 +132,12 @@ public final class ImportEngine {
 
     // ---------------------------------------------------------------- one field
 
-    private Outcome compute(FieldPlan plan, String input, FieldValues soFar, boolean canonicalFallback) {
+    /**
+     * @param canonicalCopy the canonical text received from a non-STRING source by a CANONICAL copy, or
+     *                      null; when step 7 sees exactly this text it tries the canonical form first
+     */
+    private Outcome compute(FieldPlan plan, String input, FieldValues soFar, boolean canonicalFallback,
+                            String canonicalCopy) {
         FieldDefinition field = plan.field();
         String value = emptyToNull(input == null ? null : input.strip());
         if (value != null) {
@@ -142,13 +163,15 @@ public final class ImportEngine {
         if (value == null) {
             return resolveEmpty(plan, soFar, canonicalFallback);
         }
-        Optional<Object> typed = plan.converter().convert(value, canonicalFallback);
+        TypeConverter.Order conversion = value.equals(canonicalCopy) ? TypeConverter.Order.CANONICAL_THEN_FORMAT
+                : canonicalFallback ? TypeConverter.Order.FORMAT_THEN_CANONICAL : TypeConverter.Order.FORMAT_ONLY;
+        Optional<Object> typed = plan.converter().convert(value, conversion);
         if (typed.isEmpty()) {
             return Outcome.error(invalidType(plan, value));
         }
         List<LineError> validationErrors = validate(plan, value);
         if (!validationErrors.isEmpty()) {
-            return new Outcome(null, value, false, validationErrors);
+            return new Outcome(null, value, typed.get(), false, validationErrors);
         }
         return Outcome.value(typed.get(), value);
     }
@@ -250,17 +273,21 @@ public final class ImportEngine {
         }
     }
 
-    /** Result of one field: a value (possibly null = empty), KEEP, or errors. */
-    private record Outcome(Object value, String text, boolean kept, List<LineError> errors) {
+    /**
+     * Result of one field: a value (possibly null = empty), KEEP, or errors. {@code text} and {@code typed}
+     * are what a copy of this field receives (§4.3 «Copia»): the text after steps 3-6 and the typed value,
+     * which is kept even when the validations fail; {@code value} is only what is delivered.
+     */
+    private record Outcome(Object value, String text, Object typed, boolean kept, List<LineError> errors) {
 
-        static final Outcome KEPT = new Outcome(null, null, true, List.of());
+        static final Outcome KEPT = new Outcome(null, null, null, true, List.of());
 
         static Outcome value(Object value, String text) {
-            return new Outcome(value, text, false, List.of());
+            return new Outcome(value, text, value, false, List.of());
         }
 
         static Outcome error(LineError error) {
-            return new Outcome(null, null, false, List.of(Objects.requireNonNull(error)));
+            return new Outcome(null, null, null, false, List.of(Objects.requireNonNull(error)));
         }
     }
 }

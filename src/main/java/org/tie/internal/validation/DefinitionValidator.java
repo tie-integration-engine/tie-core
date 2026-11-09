@@ -284,6 +284,9 @@ public final class DefinitionValidator {
         if (field.copyFrom() != null && !byName.containsKey(key(field.copyFrom()))) {
             problem(label + ": copyFrom '" + field.copyFrom() + "' does not exist");
         }
+        if (field.copyMode() != null && field.copyFrom() == null) {
+            problem(label + ": copyMode requires copyFrom");
+        }
         if (field.transformer() != null && field.transformer().isBlank()) {
             problem(label + ": transformer name must not be blank");
         }

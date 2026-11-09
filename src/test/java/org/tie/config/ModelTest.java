@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.tie.fixtures.Definitions;
 
@@ -102,6 +103,19 @@ class ModelTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> layout.allowedFormats().add(FileFormat.CSV))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("AC-228 copyMode survives toBuilder; undeclared it is null and behaves as TEXT")
+    void copyModeRoundTrip() {
+        FieldDefinition canonical = FieldDefinition.builder("x").copyFrom("y").copyMode(CopyMode.CANONICAL).build();
+        FieldDefinition undeclared = FieldDefinition.builder("x").copyFrom("y").build();
+
+        assertThat(canonical.toBuilder().build()).isEqualTo(canonical);
+        assertThat(canonical.effectiveCopyMode()).isEqualTo(CopyMode.CANONICAL);
+        assertThat(undeclared.copyMode()).isNull();
+        assertThat(undeclared.effectiveCopyMode()).isEqualTo(CopyMode.TEXT);
+        assertThat(undeclared).isNotEqualTo(canonical);
     }
 
     @Test
