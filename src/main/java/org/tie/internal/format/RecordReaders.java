@@ -31,7 +31,7 @@ public final class RecordReaders {
         if (format == FileFormat.XLSX) {
             XlsxOptions options = root.formatOptions().xlsx();
             return new TabularRecordReader(new XlsxSource(file, options), root, options.hasHeader(),
-                    options.firstDataRow(), false, warnings, fileName);
+                    options.firstDataRow(), options.skipBlankRecords(), warnings, fileName);
         }
         InputStream in;
         try {

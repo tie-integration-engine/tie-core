@@ -5,6 +5,7 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.Optional;
 import org.tie.config.FieldType;
 import org.tie.config.TypeFormat;
@@ -79,7 +80,7 @@ public final class Values {
     static String format(Object value, TypeFormat format) {
         return switch (format) {
             case null -> canonical(value);
-            case TypeFormat.DateFormat(String pattern) -> TypeConverter.strict(pattern).format(
+            case TypeFormat.DateFormat(String pattern, Locale locale) -> TypeConverter.strict(pattern, locale).format(
                     (java.time.temporal.TemporalAccessor) value);
             case TypeFormat.DecimalFormat(Character decimal, Character grouping) -> number(value, decimal, grouping);
             case TypeFormat.BooleanFormat(String trueLiteral, String falseLiteral) ->

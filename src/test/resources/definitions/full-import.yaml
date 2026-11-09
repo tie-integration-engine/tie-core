@@ -41,7 +41,7 @@ layouts:
         hasHeader: true
         firstDataRow: 4
         skipBlankRecords: true
-      xlsx: { sheet: People, hasHeader: false, firstDataRow: 3 }
+      xlsx: { sheet: People, hasHeader: false, firstDataRow: 3, skipBlankRecords: true, cellValues: FORMATTED, locale: es-ES }
     fields:
       - name: nif
         column: A
@@ -74,6 +74,7 @@ layouts:
       - name: country
         inInput: false
         defaultValue: ES
+        defaultMode: TEXT
       - name: code
         inInput: false
         copyFrom: nif

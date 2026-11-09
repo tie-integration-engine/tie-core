@@ -299,6 +299,9 @@ public final class DefinitionValidator {
         } else if (field.onEmpty() != OnEmpty.DEFAULT && field.defaultValue() != null) {
             problem(label + ": defaultValue only applies with onEmpty DEFAULT");
         }
+        if (field.defaultMode() != null && field.defaultValue() == null) {
+            problem(label + ": defaultMode requires defaultValue");
+        }
         if (field.outputAs() == OutputAs.NATIVE && field.hasTextualExportSteps()) {
             problem(label + ": outputAs NATIVE cannot be combined with typeFormat, textTransforms, translations"
                     + " or transformer");
@@ -348,7 +351,7 @@ public final class DefinitionValidator {
         switch (field.typeFormat()) {
             case null -> {
             }
-            case TypeFormat.DateFormat(String pattern) -> {
+            case TypeFormat.DateFormat(String pattern, Locale ignored) -> {
                 if (type != FieldType.DATE && type != FieldType.DATETIME) {
                     problem(label + ": a date format only applies to DATE and DATETIME");
                 }

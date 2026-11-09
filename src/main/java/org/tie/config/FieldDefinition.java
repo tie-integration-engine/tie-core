@@ -9,7 +9,8 @@ import java.util.List;
  * <p>{@code onEmpty} defaults to {@link OnEmpty#DEFAULT} when there is a {@code defaultValue} and to
  * {@link OnEmpty#EMPTY} otherwise. {@code outputAs == null} means "derived" (see
  * {@link #effectiveOutputAs()}). {@code copyMode == null} means not declared, which behaves as
- * {@link CopyMode#TEXT} (see {@link #effectiveCopyMode()}).
+ * {@link CopyMode#TEXT} (see {@link #effectiveCopyMode()}). {@code defaultMode == null} means not declared, which
+ * behaves as {@link DefaultMode#CONVERT} (see {@link #effectiveDefaultMode()}).
  */
 public record FieldDefinition(
         String name,
@@ -27,6 +28,7 @@ public record FieldDefinition(
         Validations validations,
         OnEmpty onEmpty,
         String defaultValue,
+        DefaultMode defaultMode,
         OutputAs outputAs) {
 
     public FieldDefinition {
@@ -52,6 +54,11 @@ public record FieldDefinition(
         return copyMode == null ? CopyMode.TEXT : copyMode;
     }
 
+    /** {@code defaultMode} if declared, else {@link DefaultMode#CONVERT}. */
+    public DefaultMode effectiveDefaultMode() {
+        return defaultMode == null ? DefaultMode.CONVERT : defaultMode;
+    }
+
     /** {@code outputAs} if set; otherwise TEXT when {@link #hasTextualExportSteps()}, else NATIVE. */
     public OutputAs effectiveOutputAs() {
         if (outputAs != null) {
@@ -64,7 +71,7 @@ public record FieldDefinition(
         return new Builder().name(name).column(column).inInput(inInput).optional(optional).copyFrom(copyFrom)
                 .copyMode(copyMode).textTransforms(textTransforms).translations(translations).onUnmatched(onUnmatched)
                 .transformer(transformer).type(type).typeFormat(typeFormat).validations(validations)
-                .onEmpty(onEmpty).defaultValue(defaultValue).outputAs(outputAs);
+                .onEmpty(onEmpty).defaultValue(defaultValue).defaultMode(defaultMode).outputAs(outputAs);
     }
 
     public static final class Builder {
@@ -83,6 +90,7 @@ public record FieldDefinition(
         private Validations validations;
         private OnEmpty onEmpty;
         private String defaultValue;
+        private DefaultMode defaultMode;
         private OutputAs outputAs;
 
         private Builder() {
@@ -179,6 +187,11 @@ public record FieldDefinition(
             return this;
         }
 
+        public Builder defaultMode(DefaultMode defaultMode) {
+            this.defaultMode = defaultMode;
+            return this;
+        }
+
         public Builder outputAs(OutputAs outputAs) {
             this.outputAs = outputAs;
             return this;
@@ -186,7 +199,7 @@ public record FieldDefinition(
 
         public FieldDefinition build() {
             return new FieldDefinition(name, column, inInput, optional, copyFrom, copyMode, textTransforms, translations,
-                    onUnmatched, transformer, type, typeFormat, validations, onEmpty, defaultValue, outputAs);
+                    onUnmatched, transformer, type, typeFormat, validations, onEmpty, defaultValue, defaultMode, outputAs);
         }
     }
 }

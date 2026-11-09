@@ -20,6 +20,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.tie.config.ColumnLocation;
 import org.tie.config.CopyMode;
 import org.tie.config.CsvOptions;
+import org.tie.config.DefaultMode;
 import org.tie.config.DeliveryStrategy;
 import org.tie.config.DuplicateProtection;
 import org.tie.config.FieldDefinition;
@@ -156,6 +157,14 @@ class DefinitionValidatorTest {
         }
 
         @Test
+        @DisplayName("AC-237 defaultMode requires defaultValue")
+        void defaultModeWithoutDefaultValue() {
+            Layout.Builder layout = csvLayout("alta").field(FieldDefinition.builder("fecha").defaultMode(DefaultMode.TEXT));
+
+            assertThat(problems(importWith(layout))).containsExactly("layout 'alta', field 'fecha': defaultMode requires defaultValue");
+        }
+
+        @Test
         @DisplayName("AC-225 copyMode requires copyFrom")
         void copyModeWithoutCopyFrom() {
             Layout.Builder layout = csvLayout("alta").field(FieldDefinition.builder("fecha").copyMode(CopyMode.CANONICAL));
@@ -266,7 +275,7 @@ class DefinitionValidatorTest {
             Layout.Builder layout = csvLayout("alta")
                     .allowedFormats(FileFormat.CSV, FileFormat.XLSX, FileFormat.XML)
                     .csv(CsvOptions.builder().separator('"').firstDataRow(0).build())
-                    .xlsx(new XlsxOptions(" ", true, 2));
+                    .xlsx(XlsxOptions.builder().sheet(" ").build());
 
             assertThat(problems(importWith(layout))).containsExactly(
                     "layout 'alta': csv: firstDataRow must be at least 1",

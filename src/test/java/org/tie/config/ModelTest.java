@@ -36,7 +36,7 @@ class ModelTest {
         assertThat(layout.onParentRejected()).isEqualTo(OnParentRejected.CASCADE);
         assertThat(layout.isRoot()).isTrue();
         assertThat(layout.formatOptions().csv()).isEqualTo(new CsvOptions(',', '"', StandardCharsets.UTF_8, true, 2, false));
-        assertThat(layout.formatOptions().xlsx()).isEqualTo(new XlsxOptions(null, true, 2));
+        assertThat(layout.formatOptions().xlsx()).isEqualTo(new XlsxOptions(null, true, 2, false, null, null));
         assertThat(layout.formatOptions().xml().rootElement()).isEqualTo("records");
         assertThat(layout.formatOptions().json().encoding()).isEqualTo(StandardCharsets.UTF_8);
     }
@@ -103,6 +103,19 @@ class ModelTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> layout.allowedFormats().add(FileFormat.CSV))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("AC-251 the XLSX builder defaults are DEFAULTS and the 0.2.0 values; toBuilder keeps every option")
+    void xlsxOptionsBuilder() {
+        XlsxOptions full = XlsxOptions.builder().sheet("S").hasHeader(false).firstDataRow(4).skipBlankRecords(true)
+                .cellValues(XlsxCellValues.FORMATTED).locale(java.util.Locale.forLanguageTag("es-ES")).build();
+
+        assertThat(XlsxOptions.builder().build()).isEqualTo(XlsxOptions.DEFAULTS)
+                .isEqualTo(new XlsxOptions(null, true, 2, false, null, null));
+        assertThat(XlsxOptions.DEFAULTS.effectiveCellValues()).isEqualTo(XlsxCellValues.CANONICAL);
+        assertThat(XlsxOptions.DEFAULTS.effectiveLocale()).isEqualTo(java.util.Locale.ROOT);
+        assertThat(full.toBuilder().build()).isEqualTo(full);
     }
 
     @Test

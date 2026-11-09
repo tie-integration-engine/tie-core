@@ -20,6 +20,7 @@ import org.tie.ConfigurationException;
 import org.tie.config.ChannelDefinition;
 import org.tie.config.ColumnLocation;
 import org.tie.config.CopyMode;
+import org.tie.config.DefaultMode;
 import org.tie.config.CsvOptions;
 import org.tie.config.DuplicateProtection;
 import org.tie.config.FieldDefinition;
@@ -35,6 +36,7 @@ import org.tie.config.TextTransform;
 import org.tie.config.Translation;
 import org.tie.config.TranslationDirection;
 import org.tie.config.TypeFormat;
+import org.tie.config.XlsxCellValues;
 import org.tie.config.XlsxOptions;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.dataformat.yaml.YAMLMapper;
@@ -90,7 +92,7 @@ class DefinitionLoaderTest {
                         .fileNamePattern("alta_{tenant}_{timestamp:yyyyMMddHHmmss}")
                         .allowedFormats(FileFormat.CSV, FileFormat.XLSX)
                         .csv(CsvOptions.builder().separator(';').build())
-                        .xlsx(new XlsxOptions("Altas", true, 2))
+                        .xlsx(XlsxOptions.builder().sheet("Altas").build())
                         .columnLocation(ColumnLocation.HEADER)
                         .field(FieldDefinition.builder("nif")
                                 .textTransform(TextTransform.UPPER)
@@ -119,6 +121,54 @@ class DefinitionLoaderTest {
         @DisplayName("AC-195 MOVE and PAD_LEFT written as typed objects load equal to the builders")
         void typedObjectsMatchBuilders() {
             assertThat(DefinitionLoader.fromYaml(resource("spec-example.yaml"))).isEqualTo(specExampleWithBuilders());
+        }
+
+        @Test
+        @DisplayName("AC-259 typeFormat {pattern, locale} loads a date with locale; the string form still works")
+        void dateTypeFormatWithLocale() {
+            String yaml = importYaml("type: DATE\ntypeFormat: { pattern: dd-MMM-yyyy, locale: es-ES }");
+
+            assertThat(DefinitionLoader.fromYaml(yaml).layouts().getFirst().fields().getFirst().typeFormat())
+                    .isEqualTo(TypeFormat.date("dd-MMM-yyyy", java.util.Locale.forLanguageTag("es-ES")));
+            assertThat(DefinitionLoader.fromYaml(importYaml("type: DATE\ntypeFormat: dd/MM/yyyy")).layouts().getFirst()
+                    .fields().getFirst().typeFormat()).isEqualTo(TypeFormat.date("dd/MM/yyyy"));
+            assertThat(problemsOfYaml(yaml.replace("locale: es-ES", "locale: es_ES"))).containsExactly(
+                    "layouts[0].fields[0].typeFormat.locale: 'es_ES' is not a valid BCP 47 language tag");
+            assertThat(problemsOfYaml(yaml.replace("locale: es-ES", "decimalSeparator: \",\"")))
+                    .singleElement().asString().startsWith("layouts[0].fields[0].typeFormat: ")
+                    .contains("{pattern, locale}");
+        }
+
+        @Test
+        @DisplayName("AC-252 the new XLSX options load; an ill-formed locale or an unknown cellValues is an error that names it")
+        void xlsxOptionsAreLoaded() {
+            String base = importYaml("") + "    formatOptions:\n      xlsx: { skipBlankRecords: true, cellValues: FORMATTED, locale: es-ES }\n";
+
+            XlsxOptions xlsx = DefinitionLoader.fromYaml(base).layouts().getFirst().formatOptions().xlsx();
+            assertThat(xlsx).isEqualTo(XlsxOptions.builder().skipBlankRecords(true).cellValues(XlsxCellValues.FORMATTED)
+                    .locale(java.util.Locale.forLanguageTag("es-ES")).build());
+            assertThat(problemsOfYaml(base.replace("locale: es-ES", "locale: es_ES"))).containsExactly(
+                    "layouts[0].formatOptions.xlsx.locale: 'es_ES' is not a valid BCP 47 language tag");
+            assertThat(problemsOfYaml(base.replace("cellValues: FORMATTED", "cellValues: RAW"))).containsExactly(
+                    "layouts[0].formatOptions.xlsx.cellValues: expected one of CANONICAL, FORMATTED, got 'RAW'");
+        }
+
+        @Test
+        @DisplayName("AC-260 defaultMode TEXT loads from YAML and JSON; an unknown mode is an error that names it")
+        void defaultModeIsLoaded() {
+            String yaml = importYaml("defaultValue: x\ndefaultMode: TEXT");
+            String json = """
+                    {"version": 1, "id": "altas", "direction": "IMPORT",
+                     "inputChannels": [{"type": "LOCAL_DIRECTORY", "directory": "/in"}],
+                     "layouts": [{"name": "alta", "fileNamePattern": "alta_{timestamp:yyyyMMdd}", "allowedFormats": ["CSV"],
+                                  "fields": [{"name": "nif", "defaultValue": "x", "defaultMode": "TEXT"}]}]}
+                    """;
+
+            assertThat(DefinitionLoader.fromYaml(yaml).layouts().getFirst().fields().getFirst().defaultMode())
+                    .isEqualTo(DefaultMode.TEXT);
+            assertThat(DefinitionLoader.fromJson(json)).isEqualTo(DefinitionLoader.fromYaml(yaml));
+            assertThat(problemsOfYaml(yaml.replace("defaultMode: TEXT", "defaultMode: RAW"))).containsExactly(
+                    "layouts[0].fields[0].defaultMode: expected one of CONVERT, TEXT, got 'RAW'");
         }
 
         @Test
@@ -176,7 +226,8 @@ class DefinitionLoaderTest {
             Layout people = definition.layout("people").orElseThrow();
             assertThat(people.formatOptions().csv())
                     .isEqualTo(new CsvOptions(';', '\'', java.nio.charset.Charset.forName("ISO-8859-1"), true, 4, true));
-            assertThat(people.formatOptions().xlsx()).isEqualTo(new XlsxOptions("People", false, 3));
+            assertThat(people.formatOptions().xlsx()).isEqualTo(new XlsxOptions("People", false, 3, true, XlsxCellValues.FORMATTED,
+                    java.util.Locale.forLanguageTag("es-ES")));
             FieldDefinition nif = people.fields().get(0);
             assertThat(nif.textTransforms()).containsExactly(TextTransform.UPPER, TextTransform.STRIP_ACCENTS,
                     TextTransform.padLeft(9, '0'), TextTransform.LOWER);
@@ -190,6 +241,7 @@ class DefinitionLoaderTest {
             assertThat(people.fields().get(5).onEmpty()).isEqualTo(OnEmpty.DEFAULT);
             assertThat(people.fields().get(5).inInput()).isFalse();
             assertThat(people.fields().get(6).copyMode()).isEqualTo(CopyMode.CANONICAL);
+            assertThat(people.fields().get(5).defaultMode()).isEqualTo(DefaultMode.TEXT);
 
             Layout line = definition.layout("line").orElseThrow();
             assertThat(line.parent()).isEqualTo("order");
@@ -252,8 +304,8 @@ class DefinitionLoaderTest {
                     "layouts[0].fields[0].textTransforms[1]: expected an object with length and char for PAD_LEFT,"
                             + " got 'PAD_LEFT'",
                     "layouts[0].fields[0].textTransforms[2].char: is required",
-                    "layouts[0].fields[0].typeFormat: expected a date pattern, {decimalSeparator, groupingSeparator}"
-                            + " or {trueLiteral, falseLiteral}, got an object",
+                    "layouts[0].fields[0].typeFormat: expected a date pattern, {pattern, locale},"
+                            + " {decimalSeparator, groupingSeparator} or {trueLiteral, falseLiteral}, got an object",
                     "inputChannels[0].port: expected an integer, got '22'",
                     "inputChannels[0]: unknown property 'colour'",
                     "inputChannels[1].type: expected one of SFTP, LOCAL_DIRECTORY, PROVIDED_STREAM, got 'FTP'");

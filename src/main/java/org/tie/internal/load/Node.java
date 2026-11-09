@@ -11,7 +11,9 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.IllformedLocaleException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -131,6 +133,20 @@ final class Node {
             return null;
         }
         return value.charAt(0);
+    }
+
+    /** A BCP 47 language tag such as {@code es-ES}; an ill-formed tag is a problem that names the property. */
+    Locale locale(String name) {
+        String tag = string(name);
+        if (tag == null) {
+            return null;
+        }
+        try {
+            return new Locale.Builder().setLanguageTag(tag).build();
+        } catch (IllformedLocaleException e) {
+            problem(name, "'" + tag + "' is not a valid BCP 47 language tag");
+            return null;
+        }
     }
 
     <E extends Enum<E>> E enumValue(String name, Class<E> type) {

@@ -77,6 +77,12 @@ public final class Reading {
         return records.stream().map(ReadRecord::rowNumber).toList();
     }
 
+    /** The field engine's result for every record, accepted or rejected. */
+    public List<LineResult> results() {
+        ImportEngine engine = new ImportEngine(root, Map.of(), null);
+        return records.stream().map(record -> engine.process(record.input())).toList();
+    }
+
     /** Typed values of every record through the field engine; a rejected line fails the test. */
     public List<Map<String, Object>> typed() {
         ImportEngine engine = new ImportEngine(root, Map.of(), null);

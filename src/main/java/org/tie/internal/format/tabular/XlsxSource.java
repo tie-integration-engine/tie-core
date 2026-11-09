@@ -16,20 +16,26 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 import org.apache.poi.openxml4j.opc.OPCPackage;
 import org.apache.poi.openxml4j.opc.PackageAccess;
+import org.apache.poi.ss.usermodel.BuiltinFormats;
+import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.DateUtil;
 import org.apache.poi.xssf.eventusermodel.ReadOnlySharedStringsTable;
 import org.apache.poi.xssf.eventusermodel.XSSFReader;
 import org.apache.poi.xssf.model.StylesTable;
 import org.apache.poi.xssf.usermodel.XSSFCellStyle;
 import org.tie.FileErrorType;
+import org.tie.config.XlsxCellValues;
 import org.tie.config.XlsxOptions;
 import org.tie.internal.format.FileFailure;
 import org.tie.internal.format.SecureXml;
 
 /**
  * Rows of one XLSX sheet, streamed with StAX over the sheet XML (never the whole workbook in memory,
- * INV-13). Values are the stored ones, normalized (§4.1 "Celdas XLSX"): canonical numbers, ISO dates,
- * {@code true}/{@code false}, and the cached value of formulas. POI's zip-bomb limits apply (AC-38).
+ * INV-13). With {@code cellValues CANONICAL} (the default) values are the stored ones, normalized (§4.1
+ * "Celdas XLSX"): canonical numbers, ISO dates, {@code true}/{@code false}, and the cached value of formulas.
+ * With {@code FORMATTED} numbers and dates are the text Excel displays, per the cell's number format and the
+ * options' locale (POI {@link DataFormatter}), and booleans are {@code TRUE}/{@code FALSE}. POI's zip-bomb
+ * limits apply (AC-38).
  */
 public final class XlsxSource implements TabularSource {
 
@@ -41,6 +47,8 @@ public final class XlsxSource implements TabularSource {
     private final ReadOnlySharedStringsTable sharedStrings;
     private final StylesTable styles;
     private final boolean date1904;
+    /** Null with CANONICAL values. */
+    private final DataFormatter formatter;
     private int lastRow;
 
     public XlsxSource(Path file, XlsxOptions options) {
@@ -52,6 +60,8 @@ public final class XlsxSource implements TabularSource {
             this.sharedStrings = new ReadOnlySharedStringsTable(opened, false);
             this.styles = reader.getStylesTable();
             this.date1904 = isDate1904(reader);
+            this.formatter = options.effectiveCellValues() == XlsxCellValues.FORMATTED
+                    ? new DataFormatter(options.effectiveLocale()) : null;
             sheetStream = selectSheet(reader, options.sheet());
             this.xml = SecureXml.inputFactory().createXMLStreamReader(sheetStream);
             this.pkg = opened;
@@ -135,7 +145,10 @@ public final class XlsxSource implements TabularSource {
         String value = stored.toString();
         return switch (type == null ? "n" : type) {
             case "s" -> sharedStrings.getItemAt(Integer.parseInt(value.strip())).getString();
-            case "b" -> "1".equals(value.strip()) ? "true" : "false";
+            case "b" -> {
+                boolean truth = "1".equals(value.strip());
+                yield formatter != null ? (truth ? "TRUE" : "FALSE") : (truth ? "true" : "false");
+            }
             case "n" -> number(value.strip(), style);
             default -> value;
         };
@@ -144,6 +157,9 @@ public final class XlsxSource implements TabularSource {
     private String number(String value, String style) {
         if (value.isEmpty()) {
             return "";
+        }
+        if (formatter != null) {
+            return formatted(Double.parseDouble(value), style);
         }
         if (style != null && isDateStyle(Integer.parseInt(style))) {
             double serial = Double.parseDouble(value);
@@ -155,6 +171,27 @@ public final class XlsxSource implements TabularSource {
             }
         }
         return new BigDecimal(value).stripTrailingZeros().toPlainString();
+    }
+
+    /** The text Excel displays for a number with the cell's style; no style or an unknown one is General. */
+    private String formatted(double number, String style) {
+        int formatIndex = 0;
+        String format = BuiltinFormats.getBuiltinFormat(0);
+        if (style != null && styles != null) {
+            int styleIndex = Integer.parseInt(style);
+            if (styleIndex < styles.getNumCellStyles()) {
+                XSSFCellStyle cellStyle = styles.getStyleAt(styleIndex);
+                if (cellStyle != null) {
+                    formatIndex = cellStyle.getDataFormat();
+                    String styleFormat = cellStyle.getDataFormatString();
+                    format = styleFormat != null ? styleFormat : BuiltinFormats.getBuiltinFormat(formatIndex);
+                    if (format == null) {
+                        format = BuiltinFormats.getBuiltinFormat(0);
+                    }
+                }
+            }
+        }
+        return formatter.formatRawCellContents(number, formatIndex, format, date1904);
     }
 
     private boolean isDateStyle(int styleIndex) {
@@ -221,7 +258,7 @@ public final class XlsxSource implements TabularSource {
 
     @Override
     public boolean canonicalValues() {
-        return true;
+        return formatter == null;
     }
 
     @Override

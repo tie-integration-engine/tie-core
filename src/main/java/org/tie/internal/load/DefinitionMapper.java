@@ -8,6 +8,7 @@ import org.tie.config.ColumnLocation;
 import org.tie.config.ConsumerErrorPolicy;
 import org.tie.config.CopyMode;
 import org.tie.config.CsvOptions;
+import org.tie.config.DefaultMode;
 import org.tie.config.DeliveryStrategy;
 import org.tie.config.Direction;
 import org.tie.config.DuplicateProtection;
@@ -35,6 +36,7 @@ import org.tie.config.Translation;
 import org.tie.config.TranslationDirection;
 import org.tie.config.TypeFormat;
 import org.tie.config.Validations;
+import org.tie.config.XlsxCellValues;
 import org.tie.config.XlsxOptions;
 import org.tie.config.XmlOptions;
 import tools.jackson.databind.JsonNode;
@@ -175,9 +177,14 @@ public final class DefinitionMapper {
         Node xlsx = node.object("xlsx");
         if (xlsx != null) {
             Integer firstDataRow = xlsx.integer("firstDataRow");
-            options = options.withXlsx(new XlsxOptions(xlsx.string("sheet"),
-                    xlsx.bool("hasHeader", XlsxOptions.DEFAULTS.hasHeader()),
-                    firstDataRow == null ? XlsxOptions.DEFAULTS.firstDataRow() : firstDataRow));
+            options = options.withXlsx(XlsxOptions.builder()
+                    .sheet(xlsx.string("sheet"))
+                    .hasHeader(xlsx.bool("hasHeader", XlsxOptions.DEFAULTS.hasHeader()))
+                    .firstDataRow(firstDataRow == null ? XlsxOptions.DEFAULTS.firstDataRow() : firstDataRow)
+                    .skipBlankRecords(xlsx.bool("skipBlankRecords", false))
+                    .cellValues(xlsx.enumValue("cellValues", XlsxCellValues.class))
+                    .locale(xlsx.locale("locale"))
+                    .build());
             xlsx.finish();
         }
         Node xml = node.object("xml");
@@ -207,6 +214,7 @@ public final class DefinitionMapper {
                 .type(node.enumValue("type", FieldType.class))
                 .onEmpty(node.enumValue("onEmpty", OnEmpty.class))
                 .defaultValue(node.string("defaultValue"))
+                .defaultMode(node.enumValue("defaultMode", DefaultMode.class))
                 .outputAs(node.enumValue("outputAs", OutputAs.class));
         List<TextTransform> transforms = node.list("textTransforms", this::textTransform);
         if (transforms != null) {
@@ -277,18 +285,27 @@ public final class DefinitionMapper {
         return translation;
     }
 
+    private static final String TYPE_FORMAT_FORMS =
+            "a date pattern, {pattern, locale}, {decimalSeparator, groupingSeparator} or {trueLiteral, falseLiteral}";
+
     private TypeFormat typeFormat(Node.Item item) {
         if (item.isString()) {
             return TypeFormat.date(item.stringValue());
         }
         if (!item.isObject()) {
-            return item.error("a date pattern, {decimalSeparator, groupingSeparator} or {trueLiteral, falseLiteral}");
+            return item.error(TYPE_FORMAT_FORMS);
         }
         Node node = item.asObject();
+        boolean date = node.has("pattern") || node.has("locale");
         boolean decimal = node.has("decimalSeparator") || node.has("groupingSeparator");
         boolean literals = node.has("trueLiteral") || node.has("falseLiteral");
-        if (decimal == literals) {
-            return item.error("a date pattern, {decimalSeparator, groupingSeparator} or {trueLiteral, falseLiteral}");
+        if ((date ? 1 : 0) + (decimal ? 1 : 0) + (literals ? 1 : 0) != 1) {
+            return item.error(TYPE_FORMAT_FORMS);
+        }
+        if (date) {
+            TypeFormat format = TypeFormat.date(required(node, "pattern", node.string("pattern")), node.locale("locale"));
+            node.finish();
+            return format;
         }
         TypeFormat format = decimal
                 ? TypeFormat.decimal(node.character("decimalSeparator"), node.character("groupingSeparator"))

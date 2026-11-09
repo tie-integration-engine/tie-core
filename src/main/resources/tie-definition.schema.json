@@ -94,7 +94,10 @@
       "properties": {
         "sheet": { "type": "string", "minLength": 1 },
         "hasHeader": { "type": "boolean" },
-        "firstDataRow": { "type": "integer", "minimum": 1 }
+        "firstDataRow": { "type": "integer", "minimum": 1 },
+        "skipBlankRecords": { "type": "boolean" },
+        "cellValues": { "enum": ["CANONICAL", "FORMATTED"] },
+        "locale": { "type": "string", "minLength": 1 }
       }
     },
     "xmlOptions": {
@@ -144,6 +147,7 @@
         },
         "onEmpty": { "enum": ["EMPTY", "KEEP", "ERROR", "DEFAULT"] },
         "defaultValue": { "type": "string" },
+        "defaultMode": { "enum": ["CONVERT", "TEXT"] },
         "outputAs": { "enum": ["NATIVE", "TEXT"] }
       }
     },
@@ -182,6 +186,16 @@
     "typeFormat": {
       "oneOf": [
         { "type": "string", "minLength": 1, "description": "DateTimeFormatter pattern for DATE and DATETIME" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pattern"],
+          "description": "DateTimeFormatter pattern with the BCP 47 locale of its month and day names",
+          "properties": {
+            "pattern": { "type": "string", "minLength": 1 },
+            "locale": { "type": "string", "minLength": 1 }
+          }
+        },
         {
           "type": "object",
           "additionalProperties": false,

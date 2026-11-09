@@ -41,6 +41,7 @@ import org.tie.ResultStatus;
 import org.tie.Tie;
 import org.tie.config.ColumnLocation;
 import org.tie.config.CopyMode;
+import org.tie.config.DefaultMode;
 import org.tie.config.Direction;
 import org.tie.config.FieldDefinition;
 import org.tie.config.FieldType;
@@ -240,6 +241,31 @@ class ExportTest {
     }
 
     @Test
+    @DisplayName("AC-255 a date pattern with locale es-ES writes Spanish month names")
+    void spanishMonthOnExport() throws IOException {
+        run(export(layout(FileFormat.CSV, FieldDefinition.builder("day").type(FieldType.DATE)
+                .typeFormat(TypeFormat.date("dd-MMM-yyyy", java.util.Locale.forLanguageTag("es-ES"))))),
+                record("day", LocalDate.of(2026, 12, 31)));
+
+        assertThat(written("csv")).isEqualTo("day\r\n31-dic-2026\r\n");
+    }
+
+    @Test
+    @DisplayName("AC-238 defaultMode is ignored on export")
+    void defaultModeIgnoredOnExport() throws IOException {
+        Map<String, Object> record = record("day", null);
+        FieldDefinition.Builder day = FieldDefinition.builder("day").type(FieldType.DATE)
+                .typeFormat(TypeFormat.date("dd/MM/yyyy")).defaultValue("31/12/2026");
+
+        run(export(layout(FileFormat.CSV, day)), record);
+        String withoutMode = written("csv");
+        Files.delete(out.resolve(NAME + ".csv"));
+        run(export(layout(FileFormat.CSV, day.defaultMode(DefaultMode.TEXT))), record);
+
+        assertThat(written("csv")).isEqualTo(withoutMode);
+    }
+
+    @Test
     @DisplayName("AC-226 copyMode is ignored on export: a copy takes the source's supplied value")
     void copyModeIgnoredOnExport() throws IOException {
         FieldDefinition.Builder day = FieldDefinition.builder("day").type(FieldType.DATE).typeFormat(TypeFormat.date("dd/MM/yyyy"));
@@ -252,6 +278,32 @@ class ExportTest {
                 FieldDefinition.builder("copy").copyFrom("day").copyMode(CopyMode.CANONICAL))), record);
 
         assertThat(written("csv")).isEqualTo(withoutMode);
+    }
+
+    @Test
+    @DisplayName("AC-253 the XLSX reading options are ignored on export")
+    void xlsxReadingOptionsIgnoredOnExport() throws IOException {
+        Map<String, Object> record = record("n", 42L, "day", LocalDate.of(2026, 12, 31), "t", " ");
+        FieldDefinition.Builder[] fields = {FieldDefinition.builder("n").type(FieldType.INTEGER),
+                FieldDefinition.builder("day").type(FieldType.DATE), FieldDefinition.builder("t")};
+
+        run(export(layout(FileFormat.XLSX, fields)), record);
+        byte[] plain = sheetXml(out.resolve(NAME + ".xlsx"));
+        Files.delete(out.resolve(NAME + ".xlsx"));
+        run(export(layout(FileFormat.XLSX, fields).xlsx(org.tie.config.XlsxOptions.builder().skipBlankRecords(true)
+                .cellValues(org.tie.config.XlsxCellValues.FORMATTED).locale(java.util.Locale.forLanguageTag("es-ES")).build())),
+                record);
+
+        assertThat(sheetXml(out.resolve(NAME + ".xlsx"))).isEqualTo(plain);
+    }
+
+    private static byte[] sheetXml(Path xlsx) throws IOException {
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(xlsx.toFile())) {
+            java.util.zip.ZipEntry sheet = zip.getEntry("xl/worksheets/sheet1.xml");
+            try (InputStream in = zip.getInputStream(sheet)) {
+                return in.readAllBytes();
+            }
+        }
     }
 
     @Test
