@@ -48,6 +48,16 @@ final class TypeConverter {
         return formatDescription;
     }
 
+    /** Which forms a conversion accepts, and in which order (§4.1 «Tipos», §4.3 «Copia»). */
+    enum Order {
+        /** Only {@code typeFormat} (or the default form when there is none). */
+        FORMAT_ONLY,
+        /** {@code typeFormat}, then the canonical form (values read from XLSX cells). */
+        FORMAT_THEN_CANONICAL,
+        /** The canonical form, then {@code typeFormat} (a CANONICAL copy whose text was not changed). */
+        CANONICAL_THEN_FORMAT
+    }
+
     /**
      * Converts a non-empty value.
      *
@@ -55,6 +65,19 @@ final class TypeConverter {
      * @return the typed value, or empty if the text is not valid for the type
      */
     Optional<Object> convert(String text, boolean canonicalFallback) {
+        return convert(text, canonicalFallback ? Order.FORMAT_THEN_CANONICAL : Order.FORMAT_ONLY);
+    }
+
+    /** Converts a non-empty value accepting the forms of {@code order}; empty if none matches. */
+    Optional<Object> convert(String text, Order order) {
+        if (order == Order.CANONICAL_THEN_FORMAT) {
+            Object canonical = canonical(text);
+            if (canonical != null) {
+                return Optional.of(canonical);
+            }
+            return convert(text, Order.FORMAT_ONLY);
+        }
+        boolean canonicalFallback = order == Order.FORMAT_THEN_CANONICAL;
         Object value = switch (type) {
             case STRING -> text;
             case INTEGER -> integer(text);
@@ -74,6 +97,31 @@ final class TypeConverter {
             case BOOLEAN -> bool(text);
         };
         return Optional.ofNullable(value);
+    }
+
+    /** The value of {@code text} read in the canonical form of the type (§4.1 «Forma canónica»), or null. */
+    private Object canonical(String text) {
+        return switch (type) {
+            case STRING -> text;
+            case INTEGER -> {
+                if (!CANONICAL_INTEGER.matcher(text).matches()) {
+                    yield null;
+                }
+                try {
+                    yield Long.parseLong(text);
+                } catch (NumberFormatException e) {
+                    yield null;
+                }
+            }
+            case DECIMAL -> canonicalDecimal(text);
+            case DATE -> date(text, ISO_DATE);
+            case DATETIME -> dateTime(text, ISO_DATE_TIME);
+            case BOOLEAN -> switch (text) {
+                case "true" -> Boolean.TRUE;
+                case "false" -> Boolean.FALSE;
+                default -> null;
+            };
+        };
     }
 
     private Long integer(String text) {

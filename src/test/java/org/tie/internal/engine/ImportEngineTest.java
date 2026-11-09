@@ -3,6 +3,7 @@ package org.tie.internal.engine;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
+import static org.assertj.core.api.Assertions.tuple;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -21,6 +22,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.tie.ErrorCode;
 import org.tie.LineError;
 import org.tie.RecordView;
+import org.tie.config.CopyMode;
 import org.tie.config.Direction;
 import org.tie.config.FieldDefinition;
 import org.tie.config.FieldType;
@@ -614,6 +616,231 @@ class ImportEngineTest {
                 assertThat(error.code().argumentNames()).containsAll(error.args().keySet());
                 assertThat(error.message()).isEqualTo(error.code().message(error.args())).doesNotContain("{");
             }
+        }
+    }
+
+    @Nested
+    class CopyModes {
+
+        private static final TypeFormat DMY = TypeFormat.date("dd/MM/yyyy");
+        private static final TypeFormat COMMA = TypeFormat.decimal(',', '.');
+
+        private FieldDefinition.Builder canonical(String name, String from) {
+            return FieldDefinition.builder(name).inInput(false).copyFrom(from).copyMode(CopyMode.CANONICAL);
+        }
+
+        private FieldValues copy(FieldDefinition.Builder source, FieldDefinition.Builder target, String input) {
+            return accepted(engine(source, target).process(LineInput.of(line(source.build().name(), input))));
+        }
+
+        @Test
+        @DisplayName("AC-206 without copyMode a copy receives the source's text, as in 0.1.0")
+        void textByDefault() {
+            FieldValues values = copy(FieldDefinition.builder("A").type(FieldType.DATE).typeFormat(DMY),
+                    FieldDefinition.builder("B").inInput(false).copyFrom("A"), "31/12/2026");
+
+            assertThat(values.get("B")).isEqualTo("31/12/2026");
+        }
+
+        @Test
+        @DisplayName("AC-207 a CANONICAL copy of a formatted date to a STRING field is ISO")
+        void dateToText() {
+            assertThat(copy(FieldDefinition.builder("A").type(FieldType.DATE).typeFormat(DMY), canonical("B", "A"),
+                    "31/12/2026").get("B")).isEqualTo("2026-12-31");
+        }
+
+        @Test
+        @DisplayName("AC-208 a CANONICAL copy between two dates with the same format")
+        void dateToSameFormat() {
+            assertThat(copy(FieldDefinition.builder("A").type(FieldType.DATE).typeFormat(DMY),
+                    canonical("B", "A").type(FieldType.DATE).typeFormat(DMY), "31/12/2026").get("B"))
+                    .isEqualTo(LocalDate.of(2026, 12, 31));
+        }
+
+        @Test
+        @DisplayName("AC-209 a CANONICAL copy between two dates with different formats")
+        void dateToOtherFormat() {
+            assertThat(copy(FieldDefinition.builder("A").type(FieldType.DATE).typeFormat(DMY),
+                    canonical("B", "A").type(FieldType.DATE).typeFormat(TypeFormat.date("yyyyMMdd")), "31/12/2026")
+                    .get("B")).isEqualTo(LocalDate.of(2026, 12, 31));
+        }
+
+        @Test
+        @DisplayName("AC-210 a CANONICAL copy of a comma decimal to a STRING field is plain")
+        void decimalToText() {
+            assertThat(copy(FieldDefinition.builder("A").type(FieldType.DECIMAL).typeFormat(COMMA), canonical("B", "A"),
+                    "1.234,50").get("B")).isEqualTo("1234.50");
+        }
+
+        @Test
+        @DisplayName("AC-211 a CANONICAL copy of a comma decimal to a decimal without format")
+        void decimalToPlainDecimal() {
+            assertThat(copy(FieldDefinition.builder("A").type(FieldType.DECIMAL).typeFormat(COMMA),
+                    canonical("B", "A").type(FieldType.DECIMAL), "1.234,50").get("B")).isEqualTo(new BigDecimal("1234.50"));
+        }
+
+        @Test
+        @DisplayName("AC-212 a CANONICAL copy tries the canonical form first: 1234.5 is not 12345")
+        void canonicalFirst() {
+            assertThat(copy(FieldDefinition.builder("A").type(FieldType.DECIMAL),
+                    canonical("B", "A").type(FieldType.DECIMAL).typeFormat(COMMA), "1234.5").get("B"))
+                    .isEqualTo(new BigDecimal("1234.5"));
+        }
+
+        @Test
+        @DisplayName("AC-213 a CANONICAL copy of a STRING source applies the target's format first")
+        void stringSourceFormatFirst() {
+            assertThat(copy(FieldDefinition.builder("A"),
+                    canonical("B", "A").type(FieldType.DECIMAL).typeFormat(COMMA), "1.234").get("B"))
+                    .isEqualTo(new BigDecimal("1234"));
+        }
+
+        @Test
+        @DisplayName("AC-214 a CANONICAL copy of a STRING source still goes through the target's translations")
+        void stringSourceTranslated() {
+            assertThat(copy(FieldDefinition.builder("A"),
+                    canonical("B", "A").type(FieldType.DATE).typeFormat(DMY).translation("00000000", "01/01/1900"),
+                    " 00000000 ").get("B")).isEqualTo(LocalDate.of(1900, 1, 1));
+        }
+
+        @Test
+        @DisplayName("AC-215 a CANONICAL copy of a formatted boolean: true for a boolean with the same literals and for text")
+        void booleans() {
+            TypeFormat sn = TypeFormat.booleanLiterals("S", "N");
+            FieldValues values = accepted(engine(FieldDefinition.builder("A").type(FieldType.BOOLEAN).typeFormat(sn),
+                    canonical("B", "A").type(FieldType.BOOLEAN).typeFormat(sn), canonical("C", "A"))
+                    .process(LineInput.of(line("A", "S"))));
+
+            assertThat(values.get("B")).isEqualTo(true);
+            assertThat(values.get("C")).isEqualTo("true");
+        }
+
+        @Test
+        @DisplayName("AC-216 a source with a type error gives the CANONICAL copy an empty value")
+        void sourceTypeError() {
+            FieldDefinition.Builder source = FieldDefinition.builder("A").type(FieldType.DATE).typeFormat(DMY);
+
+            assertThat(rejected(engine(source, canonical("B", "A")).process(LineInput.of(line("A", "31-12-2026")))))
+                    .extracting(LineError::field, LineError::code).containsExactly(tuple("A", ErrorCode.INVALID_TYPE));
+            assertThat(rejected(engine(source, canonical("B", "A").onEmpty(OnEmpty.ERROR))
+                    .process(LineInput.of(line("A", "31-12-2026")))))
+                    .extracting(LineError::field, LineError::code)
+                    .containsExactly(tuple("A", ErrorCode.INVALID_TYPE), tuple("B", ErrorCode.REQUIRED_EMPTY));
+        }
+
+        @Test
+        @DisplayName("AC-217 a source that fails its validations still gives the CANONICAL copy its canonical text")
+        void sourceValidationError() {
+            List<LineError> errors = rejected(engine(
+                    FieldDefinition.builder("A").type(FieldType.DECIMAL).typeFormat(COMMA).validations(Validations.maxLength(5)),
+                    canonical("B", "A").validations(Validations.maxLength(3))).process(LineInput.of(line("A", "1.234,50"))));
+
+            assertThat(errors).extracting(LineError::field, LineError::code, error -> error.args().get("value"))
+                    .containsExactly(tuple("A", ErrorCode.TOO_LONG, "1.234,50"), tuple("B", ErrorCode.TOO_LONG, "1234.50"));
+        }
+
+        @Test
+        @DisplayName("AC-218 a CANONICAL copy of a default value is canonical")
+        void defaultValue() {
+            assertThat(copy(FieldDefinition.builder("A").type(FieldType.DATE).typeFormat(DMY).defaultValue("31/12/2026"),
+                    canonical("B", "A"), "").get("B")).isEqualTo("2026-12-31");
+        }
+
+        @Test
+        @DisplayName("AC-219 a TEXT copy of a CANONICAL copy keeps the canonical text, whatever the declaration order")
+        void chain() {
+            FieldValues values = accepted(engine(
+                    FieldDefinition.builder("C").inInput(false).copyFrom("B"),
+                    canonical("B", "A"),
+                    FieldDefinition.builder("A").type(FieldType.DATE).typeFormat(DMY)).process(LineInput.of(line("A", "31/12/2026"))));
+
+            assertThat(values.get("B")).isEqualTo("2026-12-31");
+            assertThat(values.get("C")).isEqualTo("2026-12-31");
+        }
+
+        @Test
+        @DisplayName("AC-220 the translations of a CANONICAL copy match the canonical text, not the file's")
+        void translationsSeeCanonical() {
+            FieldDefinition.Builder source = FieldDefinition.builder("A").type(FieldType.DATE).typeFormat(DMY);
+
+            assertThat(copy(source, canonical("B", "A").translation("2026-12-31", "FIN"), "31/12/2026").get("B"))
+                    .isEqualTo("FIN");
+            LineError error = rejected(engine(source, canonical("B", "A").translation("31/12/2026", "FIN"))
+                    .process(LineInput.of(line("A", "31/12/2026")))).getFirst();
+            assertThat(error.code()).isEqualTo(ErrorCode.NO_TRANSLATION);
+            assertThat(error.args()).containsEntry("value", "2026-12-31");
+        }
+
+        @Test
+        @DisplayName("AC-221 the CANONICAL copy does not depend on the source's format")
+        void independentOfSourceFormat() {
+            Object fromDmy = copy(FieldDefinition.builder("A").type(FieldType.DATE).typeFormat(DMY), canonical("B", "A"),
+                    "31/12/2026").get("B");
+            Object fromCompact = copy(FieldDefinition.builder("A").type(FieldType.DATE)
+                    .typeFormat(TypeFormat.date("yyyyMMdd")), canonical("B", "A"), "20261231").get("B");
+
+            assertThat(fromDmy).isEqualTo("2026-12-31").isEqualTo(fromCompact);
+        }
+
+        @Test
+        @DisplayName("AC-222 a CANONICAL copy of a DATE to a DATETIME is INVALID_TYPE")
+        void dateToDateTime() {
+            LineError error = rejected(engine(FieldDefinition.builder("A").type(FieldType.DATE),
+                    canonical("B", "A").type(FieldType.DATETIME)).process(LineInput.of(line("A", "2026-12-31")))).getFirst();
+
+            assertThat(error.field()).isEqualTo("B");
+            assertThat(error.code()).isEqualTo(ErrorCode.INVALID_TYPE);
+            assertThat(error.args()).containsEntry("value", "2026-12-31");
+        }
+
+        @Test
+        @DisplayName("AC-223 a CANONICAL copy of an empty KEEP field receives empty; the KEEP field is absent")
+        void copyOfKeep() {
+            FieldValues values = copy(FieldDefinition.builder("A").onEmpty(OnEmpty.KEEP), canonical("B", "A"), "");
+
+            assertThat(values.has("A")).isFalse();
+            assertThat(values.has("B")).isTrue();
+            assertThat(values.get("B")).isNull();
+        }
+
+        @Test
+        @DisplayName("AC-224 when steps 3-6 change the copied text the target's format applies first")
+        void changedTextUsesFormat() {
+            TextTransform pad = TextTransform.padLeft(5, '0');
+            FieldValues values = accepted(engine(FieldDefinition.builder("A").type(FieldType.INTEGER),
+                    canonical("B", "A").textTransform(pad), canonical("C", "A").type(FieldType.INTEGER).textTransform(pad))
+                    .process(LineInput.of(line("A", "42"))));
+
+            assertThat(values.get("B")).isEqualTo("00042");
+            assertThat(values.get("C")).isEqualTo(42L);
+        }
+
+        @Test
+        void canonicalFormsOfEveryType() {
+            assertThat(Values.canonical(-1234L)).isEqualTo("-1234");
+            assertThat(Values.canonical(new BigDecimal("1234.50"))).isEqualTo("1234.50");
+            assertThat(Values.canonical(LocalDate.of(2026, 12, 31))).isEqualTo("2026-12-31");
+            assertThat(Values.canonical(LocalDateTime.of(2026, 12, 31, 10, 0))).isEqualTo("2026-12-31T10:00:00");
+            assertThat(Values.canonical(true)).isEqualTo("true");
+            assertThat(Values.canonical("x")).isEqualTo("x");
+        }
+
+        @Test
+        void conversionOrders() {
+            TypeConverter comma = new TypeConverter(FieldType.DECIMAL, COMMA);
+            TypeConverter dmy = new TypeConverter(FieldType.DATE, DMY);
+            TypeConverter sn = new TypeConverter(FieldType.BOOLEAN, TypeFormat.booleanLiterals("S", "N"));
+
+            assertThat(comma.convert("1234.5", TypeConverter.Order.FORMAT_ONLY)).isEmpty();
+            assertThat(comma.convert("1234.5", TypeConverter.Order.FORMAT_THEN_CANONICAL)).contains(new BigDecimal("1234.5"));
+            assertThat(comma.convert("1234.5", TypeConverter.Order.CANONICAL_THEN_FORMAT)).contains(new BigDecimal("1234.5"));
+            assertThat(comma.convert("1.234", TypeConverter.Order.FORMAT_ONLY)).contains(new BigDecimal("1234"));
+            assertThat(comma.convert("1.234", TypeConverter.Order.CANONICAL_THEN_FORMAT)).contains(new BigDecimal("1.234"));
+            assertThat(dmy.convert("2026-12-31", TypeConverter.Order.CANONICAL_THEN_FORMAT)).contains(LocalDate.of(2026, 12, 31));
+            assertThat(dmy.convert("31/12/2026", TypeConverter.Order.CANONICAL_THEN_FORMAT)).contains(LocalDate.of(2026, 12, 31));
+            assertThat(sn.convert("true", TypeConverter.Order.FORMAT_ONLY)).isEmpty();
+            assertThat(sn.convert("true", TypeConverter.Order.CANONICAL_THEN_FORMAT)).contains(true);
+            assertThat(sn.convert("S", TypeConverter.Order.CANONICAL_THEN_FORMAT)).contains(true);
         }
     }
 

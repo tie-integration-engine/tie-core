@@ -40,6 +40,7 @@ import org.tie.ImportContext;
 import org.tie.ResultStatus;
 import org.tie.Tie;
 import org.tie.config.ColumnLocation;
+import org.tie.config.CopyMode;
 import org.tie.config.Direction;
 import org.tie.config.FieldDefinition;
 import org.tie.config.FieldType;
@@ -236,6 +237,21 @@ class ExportTest {
                 record("n", 42L, "t", 42, "d", new BigDecimal("1.50"), "b", true, "day", LocalDate.of(2026, 12, 31)));
 
         assertThat(written("json")).isEqualTo("[{\"n\":42,\"t\":\"42\",\"d\":1.50,\"b\":true,\"day\":\"2026-12-31\"}]");
+    }
+
+    @Test
+    @DisplayName("AC-226 copyMode is ignored on export: a copy takes the source's supplied value")
+    void copyModeIgnoredOnExport() throws IOException {
+        FieldDefinition.Builder day = FieldDefinition.builder("day").type(FieldType.DATE).typeFormat(TypeFormat.date("dd/MM/yyyy"));
+        Map<String, Object> record = record("day", LocalDate.of(2026, 12, 31));
+
+        run(export(layout(FileFormat.CSV, day, FieldDefinition.builder("copy").copyFrom("day"))), record);
+        String withoutMode = written("csv");
+        Files.delete(out.resolve(NAME + ".csv"));
+        run(export(layout(FileFormat.CSV, day,
+                FieldDefinition.builder("copy").copyFrom("day").copyMode(CopyMode.CANONICAL))), record);
+
+        assertThat(written("csv")).isEqualTo(withoutMode);
     }
 
     @Test
