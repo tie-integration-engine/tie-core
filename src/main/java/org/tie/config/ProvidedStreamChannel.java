@@ -2,7 +2,8 @@ package org.tie.config;
 
 /**
  * A stream supplied by the caller in the execution context. It skips name patterns, watermarks,
- * the already-processed predicate and post-success actions, and never moves a watermark.
+ * the already-processed predicate and post-success actions, and never moves a watermark. File hooks
+ * are called for it (§5.3).
  */
 public record ProvidedStreamChannel() implements ChannelDefinition {
 

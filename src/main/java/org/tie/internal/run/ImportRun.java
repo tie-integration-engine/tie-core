@@ -378,8 +378,12 @@ public final class ImportRun {
                 if (validateFirst && !copy.temporary()) {
                     file = copyToWorkingDirectory(copy.path());
                 }
-            } else if (validateFirst || format == FileFormat.XLSX) {
-                file = spool(candidate.provided().stream());
+            } else if (validateFirst || format == FileFormat.XLSX || context.fileHook() != null) {
+                Path spooled = spool(candidate.provided().stream());
+                file = spooled;
+                long size = size(spooled);
+                hook(() -> context.fileHook().onFileReceived(new ReceivedFile(candidate.name(), layout.name(),
+                        null, size, spooled)), "onFileReceived");
             }
             if (validateFirst) {
                 try (RecordReader reader = reader(format, file)) {
@@ -428,7 +432,7 @@ public final class ImportRun {
         }
 
         private void hook(Runnable call, String name) {
-            if (candidate.remote() == null || context.fileHook() == null) {
+            if (context.fileHook() == null) {
                 return;
             }
             try {
@@ -530,6 +534,15 @@ public final class ImportRun {
                 Path copy = temporary();
                 Files.copy(stream, copy, StandardCopyOption.REPLACE_EXISTING);
                 return copy;
+            } catch (IOException e) {
+                throw new FileFailure(FileErrorType.CHANNEL, "cannot read the provided input " + candidate.name() + ": "
+                        + e.getMessage(), null, e);
+            }
+        }
+
+        private long size(Path spooled) {
+            try {
+                return Files.size(spooled);
             } catch (IOException e) {
                 throw new FileFailure(FileErrorType.CHANNEL, "cannot read the provided input " + candidate.name() + ": "
                         + e.getMessage(), null, e);
