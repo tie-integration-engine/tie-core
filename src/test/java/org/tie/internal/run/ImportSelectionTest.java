@@ -2,6 +2,7 @@ package org.tie.internal.run;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.tie.internal.run.ImportHarness.csv;
 
 import java.io.ByteArrayInputStream;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.tie.ConfigurationException;
@@ -27,6 +29,7 @@ import org.tie.WarningCode;
 import org.tie.config.DuplicateProtection;
 import org.tie.config.FieldDefinition;
 import org.tie.config.FileFormat;
+import org.tie.config.IntegrationDefinition;
 import org.tie.config.LocalDirectoryChannel;
 import org.tie.config.ProvidedStreamChannel;
 
@@ -416,5 +419,142 @@ class ImportSelectionTest {
 
         assertThat(result.status()).isEqualTo(ResultStatus.SUCCESS);
         assertThat(result.watermarks()).isEmpty();
+    }
+
+    /** T-7: a name matching several root layouts is ignored when any of them already covers it. */
+    @Nested
+    class AmbiguousAfterWatermark {
+
+        private static final LocalDateTime EMPLOYEES_MARK = LocalDateTime.of(2026, 11, 10, 0, 0);
+
+        /** employees and family both match emp_… with prefix = emp; altas never overlaps. */
+        private ImportResult run(String prefix, boolean watermark) {
+            h.context.variable("prefix", prefix).watermark("employees", EMPLOYEES_MARK);
+            return h.run(h.importOf(csv("employees", "emp_{timestamp:yyyyMMdd}"),
+                    csv("family", "{prefix}_{timestamp:yyyyMMdd}"), csv("altas", "alta_{timestamp:yyyyMMdd}"))
+                    .duplicateProtection(new DuplicateProtection(watermark, null)));
+        }
+
+        private ImportResult run() {
+            return run("emp", true);
+        }
+
+        private void assertIgnored(ImportResult result) {
+            assertThat(result.status()).isEqualTo(ResultStatus.SUCCESS);
+            assertThat(result.error()).isNull();
+            assertThat(result.files()).isEmpty();
+        }
+
+        private void assertAmbiguous(ImportResult result, String fileName, String layouts) {
+            assertThat(result.status()).isEqualTo(ResultStatus.FAILED);
+            assertThat(result.files()).isEmpty();
+            assertThat(result.error().type()).isEqualTo(FileErrorType.AMBIGUOUS_LAYOUT);
+            assertThat(result.error().message()).isEqualTo("file '" + fileName + "' matches layouts " + layouts);
+        }
+
+        @Test
+        @DisplayName("AC-317 an old ambiguous file is ignored and the run goes on with the rest")
+        void oldAmbiguousIgnored() {
+            h.writeLines("emp_20261101.csv", 1);
+            h.writeLines("alta_20261111.csv", 1);
+
+            ImportResult result = run();
+
+            assertThat(result.status()).isEqualTo(ResultStatus.SUCCESS);
+            assertThat(names(result)).containsExactly("alta_20261111.csv");
+            assertThat(result.warnings()).isEmpty();
+            assertThat(result.watermarks()).containsEntry("employees", EMPLOYEES_MARK).doesNotContainKey("family");
+        }
+
+        @Test
+        @DisplayName("AC-318 an ambiguous file equal to the watermark counts as processed")
+        void equalToWatermark() {
+            h.writeLines("emp_20261110.csv", 1);
+
+            assertIgnored(run());
+        }
+
+        @Test
+        @DisplayName("AC-319 an ambiguous file after every watermark still fails with AMBIGUOUS_LAYOUT")
+        void newAmbiguousFails() {
+            h.writeLines("emp_20261111.csv", 1);
+
+            assertAmbiguous(run(), "emp_20261111.csv", "employees, family");
+        }
+
+        @Test
+        @DisplayName("AC-320 an ambiguous file covered only by the other layout's watermark is ignored")
+        void coveredByOtherLayout() {
+            h.writeLines("emp_20261111.csv", 1);
+            h.context.watermark("family", LocalDateTime.of(2026, 11, 12, 0, 0));
+
+            assertIgnored(run());
+        }
+
+        @Test
+        @DisplayName("AC-321 an ambiguous file the predicate reports as processed is ignored")
+        void coveredByPredicate() {
+            h.writeLines("emp_20261111.csv", 1);
+            h.context.alreadyProcessed(file -> file.name().equals("emp_20261111.csv"));
+
+            assertIgnored(run());
+        }
+
+        @Test
+        @DisplayName("AC-322 without watermark protection nothing is covered and an old ambiguous file fails")
+        void watermarkDisabled() {
+            h.writeLines("emp_20261101.csv", 1);
+
+            assertAmbiguous(run("emp", false), "emp_20261101.csv", "employees, family");
+        }
+
+        @Test
+        @DisplayName("AC-323 each layout's watermark is compared with the timestamp of its own pattern")
+        void timestampPerMatch() {
+            // a extracts 2026-11-01 from the name; b extracts 2026-11-20
+            ImportHarness first = new ImportHarness(root.resolve("covered-by-a"));
+            first.writeLines("20261101_x_20261120.csv", 1);
+            first.context.watermark("a", LocalDateTime.of(2026, 11, 5, 0, 0));
+            assertIgnored(first.run(twoTimestamps(first)));
+
+            ImportHarness second = new ImportHarness(root.resolve("not-covered-by-b"));
+            second.writeLines("20261101_x_20261120.csv", 1);
+            second.context.watermark("b", LocalDateTime.of(2026, 11, 5, 0, 0));
+            assertAmbiguous(second.run(twoTimestamps(second)), "20261101_x_20261120.csv", "a, b");
+        }
+
+        private IntegrationDefinition.Builder twoTimestamps(ImportHarness harness) {
+            return harness.importOf(csv("a", "{timestamp:yyyyMMdd}_x_20261120"),
+                    csv("b", "20261101_x_{timestamp:yyyyMMdd}")).duplicateProtection(watermark());
+        }
+
+        @Test
+        @DisplayName("AC-324 the predicate is not asked about an ambiguous file a watermark already covers")
+        void predicateNotAskedWhenWatermarkCovers() {
+            h.writeLines("emp_20261101.csv", 1);
+            List<String> asked = new ArrayList<>();
+            h.context.alreadyProcessed(file -> {
+                asked.add(file.name());
+                return false;
+            });
+
+            assertIgnored(run());
+            assertThat(asked).isEmpty();
+        }
+
+        @Test
+        @DisplayName("AC-325 files matching a single layout are selected as before")
+        void singleMatchUnchanged() {
+            h.writeLines("emp_20261101.csv", 1);
+            h.writeLines("emp_20261111.csv", 1);
+            h.writeLines("fam_20261111.csv", 1);
+
+            ImportResult result = run("fam", true);
+
+            assertThat(result.status()).isEqualTo(ResultStatus.SUCCESS);
+            assertThat(result.files()).extracting(FileResult::name, FileResult::timestamp).containsExactly(
+                    tuple("emp_20261111.csv", LocalDateTime.of(2026, 11, 11, 0, 0)),
+                    tuple("fam_20261111.csv", LocalDateTime.of(2026, 11, 11, 0, 0)));
+        }
     }
 }

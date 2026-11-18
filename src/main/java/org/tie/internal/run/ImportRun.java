@@ -235,7 +235,7 @@ public final class ImportRun {
         }
     }
 
-    // ---------------------------------------------------------------- selection (§3 steps 3-4, A14)
+    // ---------------------------------------------------------------- selection (§3 steps 3-4, A14, T-7)
 
     private FileError select(List<InputChannel> channels, List<Candidate> candidates,
                              Map<String, LocalDateTime> watermarks) {
@@ -265,35 +265,36 @@ public final class ImportRun {
                     continue;
                 }
                 String base = FileNames.baseName(file.name());
-                List<Layout> matches = new ArrayList<>();
-                LocalDateTime timestamp = null;
+                // each matching pattern keeps its own timestamp: a layout's watermark is only compared with it (T-7)
+                List<LayoutMatch> matches = new ArrayList<>();
                 for (Layout root : roots) {
                     NamePattern pattern = patterns.get(root.name());
                     if (pattern == null) {
                         continue;
                     }
-                    Optional<NamePattern.Match> match = pattern.match(base, context.variables());
-                    if (match.isPresent()) {
-                        matches.add(root);
-                        timestamp = match.get().timestamp();
-                    }
+                    pattern.match(base, context.variables())
+                            .ifPresent(match -> matches.add(new LayoutMatch(root, match.timestamp())));
                 }
                 if (matches.isEmpty()) {
                     continue;
                 }
+                // a file already covered by any of its layouts is ignored, even if it is ambiguous (INV-31, INV-32):
+                // watermarks first, then the predicate, once per file
+                boolean processed = matches.stream().anyMatch(match -> coveredByWatermark(match, watermark, watermarks))
+                        || context.alreadyProcessed() != null && context.alreadyProcessed().test(file);
+                if (processed) {
+                    if (matches.size() > 1) {
+                        LOG.debug("import {}: file '{}' matches layouts {} and is already processed; ignored",
+                                definition.id(), file.name(), layoutNames(matches));
+                    }
+                    continue;
+                }
                 if (matches.size() > 1) {
                     return FileError.of(FileErrorType.AMBIGUOUS_LAYOUT, "file '" + file.name() + "' matches layouts "
-                            + matches.stream().map(Layout::name).collect(Collectors.joining(", ")));
+                            + layoutNames(matches));
                 }
-                Layout layout = matches.getFirst();
-                LocalDateTime mark = watermarks.get(layout.name());
-                if (watermark && timestamp != null && mark != null && !timestamp.isAfter(mark)) {
-                    continue;
-                }
-                if (context.alreadyProcessed() != null && context.alreadyProcessed().test(file)) {
-                    continue;
-                }
-                listed.add(Candidate.ofChannel(file, layout, timestamp, channel, definitionChannel));
+                LayoutMatch match = matches.getFirst();
+                listed.add(Candidate.ofChannel(file, match.layout(), match.timestamp(), channel, definitionChannel));
             }
         }
         Map<String, List<Candidate>> sameTimestamp = new LinkedHashMap<>();
@@ -320,6 +321,16 @@ public final class ImportRun {
             candidates.add(Candidate.ofProvided(input, definition.layout(input.layout()).orElseThrow()));
         }
         return null;
+    }
+
+    private static boolean coveredByWatermark(LayoutMatch match, boolean watermark,
+                                              Map<String, LocalDateTime> watermarks) {
+        LocalDateTime mark = watermarks.get(match.layout().name());
+        return watermark && match.timestamp() != null && mark != null && !match.timestamp().isAfter(mark);
+    }
+
+    private static String layoutNames(List<LayoutMatch> matches) {
+        return matches.stream().map(match -> match.layout().name()).collect(Collectors.joining(", "));
     }
 
     private InputChannel open(ChannelDefinition channel) {
@@ -658,6 +669,10 @@ public final class ImportRun {
         } catch (IOException ignored) {
             // nothing to do
         }
+    }
+
+    /** A root layout whose name pattern matches a listed file, with the timestamp that pattern extracts. */
+    private record LayoutMatch(Layout layout, LocalDateTime timestamp) {
     }
 
     /** A file to process: from an input channel, or provided by the caller. */
